@@ -7,7 +7,8 @@
     "prepare-assets": "node scripts/copy-pdfjs-assets.mjs",
     "dev": "npm run prepare-assets && vite",
     "build": "npm run prepare-assets && tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node bin/helpmydoc.mjs"
   },
   "dependencies": {
     "pdfjs-dist": "^6.5.438",
@@ -22,5 +23,8 @@
     "@vitejs/plugin-react": "^6.3.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.8"
+  },
+  "bin": {
+    "helpmydoc": "bin/helpmydoc.mjs"
   }
 }

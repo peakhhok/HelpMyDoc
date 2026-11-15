@@ -5,7 +5,20 @@ export const MODELS = [
   { id: "claude-fable-5-2", label: "Claude Fable 5.2" },
 ] as const;
 
+export type ProviderId = "api" | "claude-code";
+
+/** 로컬 Claude Code 에 넘길 모델 별칭 ("" = Claude Code 기본값) */
+export const CC_MODELS = [
+  { id: "", label: "Claude Code 기본값" },
+  { id: "sonnet", label: "Sonnet" },
+  { id: "opus", label: "Opus" },
+  { id: "haiku", label: "Haiku" },
+] as const;
+
 export interface Settings {
+  /** api: 내 API 키로 직접 호출 / claude-code: 내 PC의 Claude Code(구독 로그인) */
+  provider: ProviderId;
+  ccModel: string;
   apiKey: string;
   model: string;
   /** 현재 페이지 앞뒤로 함께 보낼 페이지 수 */
@@ -15,6 +28,8 @@ export interface Settings {
 const KEY = "helpmydoc.settings.v1";
 
 export const DEFAULT_SETTINGS: Settings = {
+  provider: "api",
+  ccModel: "",
   apiKey: "",
   model: MODELS[0].id,
   radius: 1,

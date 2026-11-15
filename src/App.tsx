@@ -3,6 +3,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import { PdfViewer, type PdfViewerHandle } from "./components/PdfViewer";
 import { ChatPanel } from "./components/ChatPanel";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { fetchBridgeStatus, type BridgeStatus } from "./lib/claudeCode";
 import { openPdf } from "./lib/pdf";
 import { loadSettings, saveSettings, type Settings } from "./lib/settings";
 
@@ -19,11 +20,21 @@ export default function App() {
   const [selection, setSelection] = useState("");
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [showSettings, setShowSettings] = useState(false);
+  const [bridge, setBridge] = useState<BridgeStatus | null>(null);
   const [chatWidth, setChatWidth] = useState(440);
   const [dragOver, setDragOver] = useState(false);
   const docRef = useRef<PDFDocumentProxy | null>(null);
   const viewerRef = useRef<PdfViewerHandle>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  const refreshBridge = useCallback(() => {
+    setBridge(null);
+    fetchBridgeStatus().then(setBridge);
+  }, []);
+
+  useEffect(() => {
+    fetchBridgeStatus().then(setBridge);
+  }, []);
 
   const openFile = async (file: File | undefined) => {
     if (!file) return;
@@ -139,7 +150,7 @@ export default function App() {
           </>
         )}
         <button className="ghost" onClick={() => setShowSettings(true)}>
-          ⚙ 설정{!settings.apiKey && <span className="dot" />}
+          ⚙ 설정{settings.provider === "api" && !settings.apiKey && <span className="dot" />}
         </button>
       </header>
 
@@ -172,6 +183,7 @@ export default function App() {
           selection={selection}
           onClearSelection={() => setSelection("")}
           settings={settings}
+          bridge={bridge}
           onOpenSettings={() => setShowSettings(true)}
         />
       </main>
@@ -180,6 +192,8 @@ export default function App() {
       {showSettings && (
         <SettingsDialog
           settings={settings}
+          bridge={bridge}
+          onRefreshBridge={refreshBridge}
           onClose={() => setShowSettings(false)}
           onSave={(s) => {
             setSettings(s);

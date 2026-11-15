@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { ClaudeError, streamClaude, type ChatMessage } from "../lib/claude";
+import { ClaudeError, type ChatMessage } from "../lib/claude";
+import { ClaudeCodeError, type BridgeStatus } from "../lib/claudeCode";
 import { buildPrompt } from "../lib/context";
-import type { Settings } from "../lib/settings";
+import { runProvider } from "../lib/providers";
+import { CC_MODELS, type Settings } from "../lib/settings";
 
 interface UiMessage extends ChatMessage {
   /** 이 질문에 실제로 AI에게 보여준 문서 범위 */
@@ -18,12 +20,13 @@ interface Props {
   selection: string;
   onClearSelection: () => void;
   settings: Settings;
+  bridge: BridgeStatus | null;
   onOpenSettings: () => void;
 }
 
 const QUICK_PROMPTS = ["여기서 중요한 부분을 요약해줘", "이 페이지를 쉽게 설명해줘", "핵심 개념을 정리해줘"];
 
-export function ChatPanel({ doc, fileName, currentPage, selection, onClearSelection, settings, onOpenSettings }: Props) {
+export function ChatPanel({ doc, fileName, currentPage, selection, onClearSelection, settings, bridge, onOpenSettings }: Props) {
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -39,8 +42,12 @@ export function ChatPanel({ doc, fileName, currentPage, selection, onClearSelect
     const question = raw.trim();
     if (!question || busy) return;
     if (!doc) return setError("먼저 PDF 파일을 열어 주세요.");
-    if (!settings.apiKey) {
-      setError("API 키가 필요합니다. 설정에서 Anthropic API 키를 입력해 주세요.");
+    if (settings.provider === "api" && !settings.apiKey) {
+      setError("API 키가 필요합니다. 설정에서 Anthropic API 키를 입력하거나, '내 PC의 Claude Code'를 선택해 주세요.");
+      return onOpenSettings();
+    }
+    if (settings.provider === "claude-code" && !(bridge?.available && bridge.loggedIn !== false)) {
+      setError("내 PC의 Claude Code에 연결할 수 없습니다. 설정에서 연결 상태를 확인해 주세요.");
       return onOpenSettings();
     }
 
@@ -68,15 +75,9 @@ export function ChatPanel({ doc, fileName, currentPage, selection, onClearSelect
       setMessages([...history, userMsg, { role: "assistant", content: "" }]);
 
       // 이전 턴은 질문 원문만, 이번 턴에만 현재 페이지 문맥을 붙인다.
-      const apiMessages: ChatMessage[] = [
-        ...history.map(({ role, content }) => ({ role, content })),
-        { role: "user", content: ctx.prompt },
-      ];
-
-      await streamClaude({
-        apiKey: settings.apiKey,
-        model: settings.model,
-        messages: apiMessages,
+      await runProvider(settings, {
+        history: history.map(({ role, content }) => ({ role, content })),
+        prompt: ctx.prompt,
         signal: ac.signal,
         onText: (delta) =>
           setMessages((cur) => {
@@ -87,18 +88,18 @@ export function ChatPanel({ doc, fileName, currentPage, selection, onClearSelect
           }),
       });
     } catch (e) {
-      if ((e as Error).name === "AbortError") {
-        // 사용자가 중지함 — 받은 만큼만 유지
-      } else {
-        setError(e instanceof ClaudeError ? e.message : `오류: ${(e as Error).message}`);
-        // 답변이 하나도 없으면 이번 턴을 되돌리고 질문을 입력창에 복원한다.
-        setMessages((cur) => {
-          const last = cur[cur.length - 1];
-          if (last?.role === "assistant" && last.content === "") return cur.slice(0, -2);
-          return cur;
-        });
-        setInput((v) => v || question);
+      const aborted = (e as Error).name === "AbortError";
+      if (!aborted) {
+        setError(e instanceof ClaudeError || e instanceof ClaudeCodeError ? e.message : `오류: ${(e as Error).message}`);
       }
+      // 답변이 하나도 없으면(오류든 중지든) 이번 턴을 되돌리고 질문을 입력창에 복원한다.
+      // 일부라도 받았다면 받은 만큼만 남긴다.
+      setMessages((cur) => {
+        const last = cur[cur.length - 1];
+        if (last?.role === "assistant" && last.content === "") return cur.slice(0, -2);
+        return cur;
+      });
+      setInput((v) => v || question);
     } finally {
       setBusy(false);
       abortRef.current = null;
@@ -109,7 +110,11 @@ export function ChatPanel({ doc, fileName, currentPage, selection, onClearSelect
     <aside className="chat">
       <div className="chat-head">
         <strong>Claude</strong>
-        <span className="muted">{settings.model}</span>
+        <span className="muted">
+          {settings.provider === "claude-code"
+            ? `Claude Code · ${CC_MODELS.find((m) => m.id === settings.ccModel)?.label ?? settings.ccModel}`
+            : settings.model}
+        </span>
         <span className="spacer" />
         {messages.length > 0 && (
           <button className="ghost small" onClick={() => !busy && setMessages([])} disabled={busy}>
