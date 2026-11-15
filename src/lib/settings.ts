@@ -7,12 +7,15 @@ export const MODELS = [
 
 export type ProviderId = "api" | "claude-code";
 
-/** 로컬 Claude Code 에 넘길 모델 별칭 ("" = Claude Code 기본값) */
+/**
+ * 로컬 Claude Code 에 넘길 모델 별칭.
+ * "" 는 --model 을 넘기지 않고 Claude Code 자체 설정(계정·플랜에 따라 다름)을 따른다는 뜻이다.
+ */
 export const CC_MODELS = [
-  { id: "", label: "Claude Code 기본값" },
   { id: "sonnet", label: "Sonnet" },
-  { id: "opus", label: "Opus" },
   { id: "haiku", label: "Haiku" },
+  { id: "opus", label: "Opus" },
+  { id: "", label: "Claude Code 기본값" },
 ] as const;
 
 export interface Settings {
@@ -33,7 +36,7 @@ const KEY = "helpmydoc.settings.v1";
 
 export const DEFAULT_SETTINGS: Settings = {
   provider: "api",
-  ccModel: "",
+  ccModel: "sonnet",
   apiKey: "",
   model: MODELS[0].id,
   radius: 1,

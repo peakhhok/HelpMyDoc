@@ -40,6 +40,14 @@ describe("settings", () => {
     expect(loadSettings().onboarded).toBe(false);
   });
 
+  it("Claude Code 모델은 새 설정에서 Sonnet 이 기본이고, 이미 저장된 선택은 그대로 둔다", () => {
+    expect(DEFAULT_SETTINGS.ccModel).toBe("sonnet");
+    vi.stubGlobal("localStorage", fakeStorage({ "helpmydoc.settings.v1": JSON.stringify({ ccModel: "" }) }));
+    expect(loadSettings().ccModel).toBe(""); // 'Claude Code 기본값'을 골라 둔 사용자
+    vi.stubGlobal("localStorage", fakeStorage({ "helpmydoc.settings.v1": JSON.stringify({ apiKey: "x" }) }));
+    expect(loadSettings().ccModel).toBe("sonnet"); // 모델을 고른 적 없는 사용자
+  });
+
   it("깨진 JSON 이면 기본값", () => {
     vi.stubGlobal("localStorage", fakeStorage({ "helpmydoc.settings.v1": "{oops" }));
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
