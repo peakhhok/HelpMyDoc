@@ -23,6 +23,14 @@ describe("buildPrompt", () => {
     expect(r.prompt.trim().endsWith("요약해줘")).toBe(true);
   });
 
+  it("사용자가 보고 있는 페이지에만 current 표시를 붙인다", async () => {
+    const r = await buildPrompt({ ...base, currentPage: 5, radius: 1, getPageText: pages({ 4: "a", 5: "b", 6: "c" }) });
+    expect(r.prompt).toContain('<page number="5" current="true">');
+    expect(r.prompt).toContain('<page number="4">');
+    expect(r.prompt).toContain('<page number="6">');
+    expect(r.prompt.match(/current="true"/g)).toHaveLength(1);
+  });
+
   it("문서 처음/끝에서는 범위를 잘라낸다", async () => {
     const first = await buildPrompt({
       ...base,

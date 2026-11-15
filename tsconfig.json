@@ -15,5 +15,5 @@
     "allowJs": true,
     "checkJs": false
   },
-  "include": ["src", "server", "vite.config.ts", "vitest.config.ts"]
+  "include": ["src", "server", "electron", "vite.config.ts", "vitest.config.ts"]
 }

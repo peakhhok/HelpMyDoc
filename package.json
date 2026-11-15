@@ -13,21 +13,24 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
-  },
-  "dependencies": {
-    "pdfjs-dist": "^6.5.438",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1",
-    "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "format:check": "prettier --check .",
+    "desktop": "npm run build && electron .",
+    "desktop:pack": "npm run build && electron-builder --dir",
+    "desktop:dist": "npm run build && electron-builder"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
+    "electron": "^45.3.2",
+    "electron-builder": "^26.18.0",
+    "pdfjs-dist": "^6.5.438",
     "prettier": "^3.10.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.8",
     "vitest": "^5.1.0"
@@ -37,5 +40,45 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "description": "AI가 지금 보고 있는 PDF 페이지를 아는 문서 리더",
+  "author": "HelpMyDoc contributors",
+  "license": "MIT",
+  "main": "electron/main.mjs",
+  "build": {
+    "appId": "com.helpmydoc.app",
+    "productName": "HelpMyDoc",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "server/**/*",
+      "!**/*.test.ts",
+      "!server/vite-plugin.mjs",
+      "package.json"
+    ],
+    "npmRebuild": false,
+    "mac": {
+      "category": "public.app-category.education",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office"
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
   }
 }

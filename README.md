@@ -14,7 +14,22 @@ PDF를 왼쪽에 열고, 오른쪽의 AI(Claude)에게 **페이지 번호를 말
   1. **API 키**: 내 Anthropic API 키로 브라우저에서 직접 호출 (키는 localStorage에만 저장)
   2. **내 PC의 Claude Code**: 이미 설치·로그인된 Claude Code(`claude`)를 그대로 실행해서, **Claude 구독(Pro/Max) 한도로** 사용
 
-## 실행
+## 데스크톱 앱으로 쓰기
+
+터미널 없이 더블클릭으로 쓰는 설치형 앱(Electron)입니다. 브라우저 버전과 코드가 같고, 로컬 Claude Code 브리지가 앱 안에 내장되어 있습니다.
+
+```bash
+npm install
+npm run desktop        # 빌드 후 바로 실행
+npm run desktop:dist   # 설치 파일 생성 → release/  (현재 OS 용: .dmg / .exe / .AppImage)
+```
+
+- 태그(`v*`)를 푸시하면 GitHub Actions(`.github/workflows/desktop.yml`)가 맥·윈도우·리눅스 설치 파일을 만들어 Release에 올립니다.
+- **서명되지 않은 빌드**라서 처음 실행할 때 OS 경고가 뜹니다. (맥: 앱을 우클릭 → 열기 / 윈도우: SmartScreen "추가 정보 → 실행")
+- **Claude Code는 앱에 포함되지 않습니다.** "내 PC의 Claude Code"를 쓰려면 Claude Code를 직접 설치하고 로그인해 두세요. 맥/리눅스에서는 앱이 로그인 셸의 PATH를 읽어 `claude`를 찾습니다. 윈도우는 네이티브 설치본(`claude.exe`)이 필요합니다. (`claude.cmd` 래퍼는 셸 없이 안전하게 실행할 수 없어 지원하지 않습니다.)
+- 설정(API 키 포함)은 앱 데이터 폴더에 저장됩니다. 앱은 항상 같은 로컬 포트(47821)를 쓰므로 재실행해도 설정이 유지됩니다. 포트가 사용 중이면 임의 포트를 쓰고 이때는 설정이 유지되지 않을 수 있습니다.
+
+## 실행 (브라우저)
 
 ```bash
 npm install
@@ -68,6 +83,8 @@ npm run format      # 포맷
 ```
 src/lib/pdf.ts        pdf.js 로딩, 페이지 텍스트 추출(캐시)
 src/lib/context.ts    현재 페이지 ±N쪽 + 선택 텍스트로 프롬프트 구성
+electron/main.mjs     데스크톱 앱 (창 + 로컬 서버 시작, 외부 링크는 기본 브라우저로)
+electron/path-fix.mjs 맥/리눅스 GUI 실행 시 PATH 보정 (claude 를 찾기 위해)
 src/lib/providers/    연결 방식 (API 키 / 로컬 Claude Code) — Provider 인터페이스 + 레지스트리
 src/lib/anthropicApi.ts Anthropic Messages API 스트리밍 호출
 src/lib/bridgeClient.ts 로컬 브리지 호출 (상태 확인, 스트리밍)
@@ -82,7 +99,7 @@ bin/helpmydoc.mjs     빌드 결과 + 브리지 서버 (`npm start`)
 - 스캔본(이미지) PDF는 텍스트가 없어 답변이 제한됩니다 → 페이지 이미지를 비전으로 전송하는 기능 예정
 - "3장 전체 요약" 같은 넓은 범위 질문 → 문서 전체 색인(RAG) 또는 목차 기반 처리 예정
 - 다른 AI(GPT, Gemini, 로컬 모델) 선택, 다른 문서 포맷은 추후 추가
-- 데스크톱 앱(Tauri) 패키징: 설치형으로 만들어 브리지를 내장 예정
+- 데스크톱 앱: PDF 파일 연결("연결 프로그램"으로 열기), 자동 업데이트, 코드 서명은 아직 없음
 
 ## 라이선스
 

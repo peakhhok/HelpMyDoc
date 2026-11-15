@@ -38,7 +38,9 @@ export async function buildPrompt(opts: {
     let text = await getPageText(p);
     if (!text) emptyPages.push(p);
     if (text.length > MAX_CHARS_PER_PAGE) text = text.slice(0, MAX_CHARS_PER_PAGE) + "\n…(truncated)";
-    pages.push(`<page number="${p}">\n${text || "(no extractable text)"}\n</page>`);
+    pages.push(
+      `<page number="${p}"${p === currentPage ? ' current="true"' : ""}>\n${text || "(no extractable text)"}\n</page>`,
+    );
   }
 
   const sel = selection.trim() ? `\n<selected_text>\n${selection.trim()}\n</selected_text>\n` : "";

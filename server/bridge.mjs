@@ -9,6 +9,7 @@ import { spawn, execFile } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolveClaudeCommand } from "./claude-path.mjs";
 
 const PREFIX = "/api/claude-code/";
 const WORKDIR = join(tmpdir(), "helpmydoc-claude-code"); // 프로젝트 CLAUDE.md 등이 섞이지 않도록 빈 폴더에서 실행
@@ -52,10 +53,11 @@ function run(cmd, args, timeout = 8000) {
 
 async function status() {
   mkdirSync(WORKDIR, { recursive: true });
-  const v = await run("claude", ["--version"]);
+  const cmd = resolveClaudeCommand();
+  const v = await run(cmd, ["--version"]);
   if (v.err) return { available: false };
   const out = { available: true, version: v.stdout.trim().split("\n")[0] };
-  const a = await run("claude", ["auth", "status", "--json"]);
+  const a = await run(cmd, ["auth", "status", "--json"]);
   try {
     const j = JSON.parse(a.stdout);
     // 계정 식별 정보는 노출하지 않고 로그인 여부와 방식만 전달한다.
@@ -129,7 +131,11 @@ async function chat(req, res) {
   });
   const send = (o) => res.writable && res.write(JSON.stringify(o) + "\n");
 
-  const child = spawn("claude", args, { cwd: WORKDIR, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+  const child = spawn(resolveClaudeCommand(), args, {
+    cwd: WORKDIR,
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+  });
   const timer = setTimeout(() => child.kill("SIGTERM"), TIMEOUT_MS);
   let buf = "";
   let stderr = "";
