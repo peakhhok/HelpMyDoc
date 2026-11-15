@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BridgeStatus } from "./bridgeClient";
-import { classifyAuth, evaluateSetup, guessPlatform, installCommands } from "./setup";
+import { classifyAuth, describeAuth, evaluateSetup, guessPlatform, installCommands } from "./setup";
 
 const status = (over: Partial<BridgeStatus> = {}): BridgeStatus => ({
   bridgeReachable: true,
@@ -61,9 +61,24 @@ describe("classifyAuth", () => {
     expect(classifyAuth("oauth_token")).toBe("subscription");
     expect(classifyAuth("api_key")).toBe("api-key");
     expect(classifyAuth("ANTHROPIC_API_KEY")).toBe("api-key");
+    // 버전마다 표기가 다를 수 있다
+    expect(classifyAuth("claude.ai")).toBe("subscription");
+    expect(classifyAuth("claudeai")).toBe("subscription");
+    expect(classifyAuth("OAuth")).toBe("subscription");
+    expect(classifyAuth("subscription")).toBe("subscription");
     expect(classifyAuth("something_new")).toBe("other");
     expect(classifyAuth(null)).toBeNull();
     expect(classifyAuth(undefined)).toBeNull();
+  });
+});
+
+describe("describeAuth", () => {
+  it("구독/API 키는 이름으로, 낯선 방식은 원래 값을 함께 보여준다", () => {
+    expect(describeAuth("subscription")).toBe("구독 로그인");
+    expect(describeAuth("api-key")).toBe("API 키 인증");
+    expect(describeAuth("other", "mystery")).toBe("로그인됨 · mystery");
+    expect(describeAuth("other")).toBe("로그인됨");
+    expect(describeAuth(null)).toBe("로그인됨");
   });
 });
 

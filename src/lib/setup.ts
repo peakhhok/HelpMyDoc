@@ -22,12 +22,23 @@ export interface SetupState {
   warnings: string[];
 }
 
-/** Claude Code 가 어떤 방식으로 인증돼 있는지. authMethod 가 낯선 값이면 "other". */
+/**
+ * Claude Code 가 어떤 방식으로 인증돼 있는지. 버전마다 authMethod 표기가 다를 수 있어 넓게 인식하고,
+ * 낯선 값이면 "other" (화면에는 원래 값을 그대로 보여준다).
+ */
 export function classifyAuth(authMethod: string | null | undefined): AuthKind | null {
   if (!authMethod) return null;
-  if (authMethod === "oauth_token") return "subscription";
-  if (/api|key/i.test(authMethod)) return "api-key";
+  const m = authMethod.toLowerCase();
+  if (/api|key/.test(m)) return "api-key";
+  if (/oauth|claude[._ -]?ai|subscription/.test(m)) return "subscription";
   return "other";
+}
+
+/** 화면에 보여줄 한 줄 설명 */
+export function describeAuth(kind: AuthKind | null, authMethod?: string | null): string {
+  if (kind === "subscription") return "구독 로그인";
+  if (kind === "api-key") return "API 키 인증";
+  return authMethod ? `로그인됨 · ${authMethod}` : "로그인됨";
 }
 
 /** 브리지가 알려준 상태로, 사용자가 지금 어느 단계에 있는지 판단한다. */

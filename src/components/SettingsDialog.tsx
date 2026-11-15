@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { CC_MODELS, MODELS, type ProviderId, type Settings } from "../lib/settings";
 import type { BridgeStatus } from "../lib/bridgeClient";
-import { evaluateSetup } from "../lib/setup";
+import { describeAuth, evaluateSetup } from "../lib/setup";
 import { HistoryManager } from "./HistoryManager";
 
 interface Props {
@@ -29,8 +29,7 @@ function bridgeLine(b: BridgeStatus | null): { ok: boolean; text: string } {
     case "login":
       return { ok: false, text: `Claude Code ${b?.version ?? ""} 감지됨 — 로그인이 필요합니다.` };
     case "ready": {
-      const via =
-        setup.authKind === "subscription" ? "구독 로그인" : setup.authKind === "api-key" ? "API 키 인증" : "로그인됨";
+      const via = describeAuth(setup.authKind, b?.authMethod);
       return { ok: true, text: `Claude Code ${b?.version ?? ""} · ${via}${setup.warnings.length ? " ⚠" : ""}` };
     }
   }

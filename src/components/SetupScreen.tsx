@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import type { BridgeStatus } from "../lib/bridgeClient";
-import { LOGIN_COMMAND, SETUP_DOC_URL, evaluateSetup, guessPlatform, installCommands } from "../lib/setup";
+import {
+  LOGIN_COMMAND,
+  SETUP_DOC_URL,
+  describeAuth,
+  evaluateSetup,
+  guessPlatform,
+  installCommands,
+} from "../lib/setup";
 import { MODELS, type Settings } from "../lib/settings";
 
 interface Props {
@@ -185,7 +192,7 @@ export function SetupScreen({ mode, settings, bridge, onRefresh, onComplete, onS
               <Row
                 state={rowState(loggedIn, setup.step === "login")}
                 title="Claude 계정 로그인"
-                detail={loggedIn ? (setup.authKind === "subscription" ? "구독 로그인" : "로그인됨") : undefined}
+                detail={loggedIn ? describeAuth(setup.authKind, bridge?.authMethod) : undefined}
               >
                 {setup.step === "login" && (
                   <>
