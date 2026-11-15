@@ -3,7 +3,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import { PdfViewer, type PdfViewerHandle } from "./components/PdfViewer";
 import { ChatPanel } from "./components/ChatPanel";
 import { SettingsDialog } from "./components/SettingsDialog";
-import { fetchBridgeStatus, type BridgeStatus } from "./lib/claudeCode";
+import { fetchBridgeStatus, type BridgeStatus } from "./lib/bridgeClient";
 import { openPdf } from "./lib/pdf";
 import { loadSettings, saveSettings, type Settings } from "./lib/settings";
 
@@ -86,7 +86,8 @@ export default function App() {
     };
   }, []);
 
-  const zoom = (d: number) => setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.round((s + d) * 100) / 100)));
+  const zoom = (d: number) =>
+    setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.round((s + d) * 100) / 100)));
 
   const startResize = (e: React.PointerEvent) => {
     e.preventDefault();

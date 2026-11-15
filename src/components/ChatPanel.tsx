@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { ClaudeError, type ChatMessage } from "../lib/claude";
-import { ClaudeCodeError, type BridgeStatus } from "../lib/claudeCode";
+import { ClaudeError, type ChatMessage } from "../lib/anthropicApi";
+import { ClaudeCodeError, type BridgeStatus } from "../lib/bridgeClient";
 import { buildPrompt } from "../lib/context";
-import { runProvider } from "../lib/providers";
-import { CC_MODELS, type Settings } from "../lib/settings";
+import { getPageText } from "../lib/pdf";
+import { getProvider } from "../lib/providers";
+import type { Settings } from "../lib/settings";
 
 interface UiMessage extends ChatMessage {
   /** 이 질문에 실제로 AI에게 보여준 문서 범위 */
@@ -26,7 +27,16 @@ interface Props {
 
 const QUICK_PROMPTS = ["여기서 중요한 부분을 요약해줘", "이 페이지를 쉽게 설명해줘", "핵심 개념을 정리해줘"];
 
-export function ChatPanel({ doc, fileName, currentPage, selection, onClearSelection, settings, bridge, onOpenSettings }: Props) {
+export function ChatPanel({
+  doc,
+  fileName,
+  currentPage,
+  selection,
+  onClearSelection,
+  settings,
+  bridge,
+  onOpenSettings,
+}: Props) {
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -38,16 +48,15 @@ export function ChatPanel({ doc, fileName, currentPage, selection, onClearSelect
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [messages]);
 
+  const provider = getProvider(settings.provider);
+
   const send = async (raw: string) => {
     const question = raw.trim();
     if (!question || busy) return;
     if (!doc) return setError("먼저 PDF 파일을 열어 주세요.");
-    if (settings.provider === "api" && !settings.apiKey) {
-      setError("API 키가 필요합니다. 설정에서 Anthropic API 키를 입력하거나, '내 PC의 Claude Code'를 선택해 주세요.");
-      return onOpenSettings();
-    }
-    if (settings.provider === "claude-code" && !(bridge?.available && bridge.loggedIn !== false)) {
-      setError("내 PC의 Claude Code에 연결할 수 없습니다. 설정에서 연결 상태를 확인해 주세요.");
+    const reason = provider.unavailableReason({ settings, bridge });
+    if (reason) {
+      setError(reason);
       return onOpenSettings();
     }
 
@@ -60,7 +69,8 @@ export function ChatPanel({ doc, fileName, currentPage, selection, onClearSelect
 
     try {
       const ctx = await buildPrompt({
-        doc,
+        numPages: doc.numPages,
+        getPageText: (p) => getPageText(doc, p),
         fileName,
         currentPage,
         radius: settings.radius,
@@ -75,7 +85,7 @@ export function ChatPanel({ doc, fileName, currentPage, selection, onClearSelect
       setMessages([...history, userMsg, { role: "assistant", content: "" }]);
 
       // 이전 턴은 질문 원문만, 이번 턴에만 현재 페이지 문맥을 붙인다.
-      await runProvider(settings, {
+      await provider.stream(settings, {
         history: history.map(({ role, content }) => ({ role, content })),
         prompt: ctx.prompt,
         signal: ac.signal,
@@ -90,7 +100,9 @@ export function ChatPanel({ doc, fileName, currentPage, selection, onClearSelect
     } catch (e) {
       const aborted = (e as Error).name === "AbortError";
       if (!aborted) {
-        setError(e instanceof ClaudeError || e instanceof ClaudeCodeError ? e.message : `오류: ${(e as Error).message}`);
+        setError(
+          e instanceof ClaudeError || e instanceof ClaudeCodeError ? e.message : `오류: ${(e as Error).message}`,
+        );
       }
       // 답변이 하나도 없으면(오류든 중지든) 이번 턴을 되돌리고 질문을 입력창에 복원한다.
       // 일부라도 받았다면 받은 만큼만 남긴다.
@@ -110,11 +122,7 @@ export function ChatPanel({ doc, fileName, currentPage, selection, onClearSelect
     <aside className="chat">
       <div className="chat-head">
         <strong>Claude</strong>
-        <span className="muted">
-          {settings.provider === "claude-code"
-            ? `Claude Code · ${CC_MODELS.find((m) => m.id === settings.ccModel)?.label ?? settings.ccModel}`
-            : settings.model}
-        </span>
+        <span className="muted">{provider.describe(settings)}</span>
         <span className="spacer" />
         {messages.length > 0 && (
           <button className="ghost small" onClick={() => !busy && setMessages([])} disabled={busy}>
@@ -176,8 +184,10 @@ export function ChatPanel({ doc, fileName, currentPage, selection, onClearSelect
       <div className="composer">
         {selection.trim() && (
           <div className="selection-chip" title={selection}>
-            <span>✂ 선택한 텍스트 포함: “{selection.trim().slice(0, 60)}
-              {selection.trim().length > 60 ? "…" : ""}”</span>
+            <span>
+              ✂ 선택한 텍스트 포함: “{selection.trim().slice(0, 60)}
+              {selection.trim().length > 60 ? "…" : ""}”
+            </span>
             <button className="ghost small" onClick={onClearSelection} aria-label="선택 해제">
               ✕
             </button>

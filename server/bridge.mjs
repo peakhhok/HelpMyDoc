@@ -44,7 +44,9 @@ function isTrustedRequest(req) {
 
 function run(cmd, args, timeout = 8000) {
   return new Promise((resolve) => {
-    execFile(cmd, args, { timeout, cwd: WORKDIR, windowsHide: true }, (err, stdout) => resolve({ err, stdout: String(stdout ?? "") }));
+    execFile(cmd, args, { timeout, cwd: WORKDIR, windowsHide: true }, (err, stdout) =>
+      resolve({ err, stdout: String(stdout ?? "") }),
+    );
   });
 }
 
@@ -104,20 +106,27 @@ async function chat(req, res) {
   // 순수 채팅 용도: 파일/명령 도구, MCP, 슬래시 명령, 프로젝트 설정을 모두 끈다.
   const args = [
     "-p",
-    "--output-format", "stream-json",
+    "--output-format",
+    "stream-json",
     "--include-partial-messages",
     "--verbose",
-    "--tools", "",
+    "--tools",
+    "",
     "--no-session-persistence",
     "--strict-mcp-config",
     "--disable-slash-commands",
-    "--setting-sources", "user",
+    "--setting-sources",
+    "user",
   ];
   if (typeof system === "string" && system) args.push("--append-system-prompt", system);
   if (model) args.push("--model", model);
 
   running++;
-  res.writeHead(200, { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store", "x-accel-buffering": "no" });
+  res.writeHead(200, {
+    "content-type": "application/x-ndjson; charset=utf-8",
+    "cache-control": "no-store",
+    "x-accel-buffering": "no",
+  });
   const send = (o) => res.writable && res.write(JSON.stringify(o) + "\n");
 
   const child = spawn("claude", args, { cwd: WORKDIR, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
@@ -156,11 +165,18 @@ async function chat(req, res) {
       } catch {
         continue;
       }
-      if (e.type === "stream_event" && e.event?.type === "content_block_delta" && e.event.delta?.type === "text_delta") {
+      if (
+        e.type === "stream_event" &&
+        e.event?.type === "content_block_delta" &&
+        e.event.delta?.type === "text_delta"
+      ) {
         streamed = true;
         send({ t: "text", text: e.event.delta.text });
       } else if (e.type === "assistant") {
-        lastAssistant = (e.message?.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join("");
+        lastAssistant = (e.message?.content ?? [])
+          .filter((b) => b.type === "text")
+          .map((b) => b.text)
+          .join("");
       } else if (e.type === "result" && e.is_error) {
         failure = String(e.result ?? "Claude Code 오류");
       }
@@ -173,7 +189,10 @@ async function chat(req, res) {
     if (finished) return;
     if (!streamed && lastAssistant && !failure) send({ t: "text", text: lastAssistant });
     else if (!streamed && (failure || code !== 0)) {
-      send({ t: "error", message: failure || stderr.trim().slice(0, 400) || `claude 가 코드 ${code} 로 종료되었습니다.` });
+      send({
+        t: "error",
+        message: failure || stderr.trim().slice(0, 400) || `claude 가 코드 ${code} 로 종료되었습니다.`,
+      });
     }
     send({ t: "done" });
     finish();
@@ -197,7 +216,10 @@ export function claudeCodeBridge(req, res, next) {
 
   const route = url.slice(PREFIX.length).split("?")[0];
   if (route === "status" && req.method === "GET") {
-    status().then((s) => json(res, 200, s), (e) => json(res, 500, { error: String(e) }));
+    status().then(
+      (s) => json(res, 200, s),
+      (e) => json(res, 500, { error: String(e) }),
+    );
   } else if (route === "chat" && req.method === "POST") {
     chat(req, res).catch((e) => {
       if (!res.headersSent) json(res, 500, { error: String(e?.message ?? e) });

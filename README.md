@@ -29,9 +29,11 @@ npm start            # http://localhost:5174  (--port 로 변경 가능)
 ```
 
 ### 연결 방식 1: API 키
+
 ⚙ 설정 → "API 키"에 [Anthropic API 키](https://console.anthropic.com/settings/keys)를 입력합니다.
 
 ### 연결 방식 2: 내 PC의 Claude Code (구독 로그인)
+
 1. [Claude Code](https://code.claude.com)를 설치하고 터미널에서 `claude`를 실행해 한 번 로그인합니다.
 2. 위 방법으로 앱을 **내 PC에서** 실행합니다.
 3. ⚙ 설정 → "내 PC의 Claude Code"를 선택하면 연결 상태(`● Claude Code x.y.z · 구독 로그인`)가 표시됩니다.
@@ -51,14 +53,24 @@ npm start            # http://localhost:5174  (--port 로 변경 가능)
 
 질문할 때마다 현재 페이지 주변의 텍스트가 선택한 방식의 Claude(Anthropic API 또는 내 PC의 Claude Code)로 전송됩니다. 그 외에는 어떤 서버로도 문서가 전송되지 않습니다.
 
+## 개발
+
+```bash
+npm test            # 테스트
+npm run typecheck   # 타입 검사
+npm run format      # 포맷
+```
+
+구조와 확장 방법은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), 기여 방법은 [CONTRIBUTING.md](CONTRIBUTING.md), 보안 모델은 [SECURITY.md](SECURITY.md)를 보세요.
+
 ## 구조
 
 ```
 src/lib/pdf.ts        pdf.js 로딩, 페이지 텍스트 추출(캐시)
 src/lib/context.ts    현재 페이지 ±N쪽 + 선택 텍스트로 프롬프트 구성
-src/lib/providers.ts  연결 방식 선택 (API 키 / 로컬 Claude Code)
-src/lib/claude.ts     Anthropic Messages API 스트리밍 호출
-src/lib/claudeCode.ts 로컬 브리지 호출 (상태 확인, 스트리밍)
+src/lib/providers/    연결 방식 (API 키 / 로컬 Claude Code) — Provider 인터페이스 + 레지스트리
+src/lib/anthropicApi.ts Anthropic Messages API 스트리밍 호출
+src/lib/bridgeClient.ts 로컬 브리지 호출 (상태 확인, 스트리밍)
 src/components/       PdfViewer(가상 렌더링·현재 페이지 감지), ChatPanel, SettingsDialog
 server/bridge.mjs     `claude -p` 실행 브리지 (127.0.0.1 전용, Host/Origin 검사)
 server/vite-plugin.mjs  dev/preview 서버에 브리지 연결
@@ -71,3 +83,7 @@ bin/helpmydoc.mjs     빌드 결과 + 브리지 서버 (`npm start`)
 - "3장 전체 요약" 같은 넓은 범위 질문 → 문서 전체 색인(RAG) 또는 목차 기반 처리 예정
 - 다른 AI(GPT, Gemini, 로컬 모델) 선택, 다른 문서 포맷은 추후 추가
 - 데스크톱 앱(Tauri) 패키징: 설치형으로 만들어 브리지를 내장 예정
+
+## 라이선스
+
+[MIT](LICENSE)
