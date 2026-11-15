@@ -171,6 +171,10 @@ export function SettingsDialog({ settings, bridge, onRefreshBridge, onOpenSetup,
         </p>
         <HistoryManager />
 
+        <p className="hint">
+          HelpMyDoc v{__APP_VERSION__} · 빌드 {__APP_COMMIT__}
+        </p>
+
         <div className="modal-actions">
           <button type="button" className="ghost" onClick={onClose}>
             취소
