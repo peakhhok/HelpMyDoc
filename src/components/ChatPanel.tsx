@@ -2,17 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { ClaudeError, type ChatMessage } from "../lib/anthropicApi";
+import { ClaudeError } from "../lib/anthropicApi";
 import { ClaudeCodeError, type BridgeStatus } from "../lib/bridgeClient";
 import { buildPrompt } from "../lib/context";
+import { updateDoc } from "../lib/docStore";
+import { linkifyPages, trimHistory, type UiMessage } from "../lib/history";
 import { getPageText } from "../lib/pdf";
 import { getProvider } from "../lib/providers";
 import type { Settings } from "../lib/settings";
-
-interface UiMessage extends ChatMessage {
-  /** 이 질문에 실제로 AI에게 보여준 문서 범위 */
-  ref?: { from: number; to: number; selection: boolean; emptyPages: number[] };
-}
 
 interface Props {
   doc: PDFDocumentProxy | null;
@@ -20,6 +17,12 @@ interface Props {
   currentPage: number;
   selection: string;
   onClearSelection: () => void;
+  /** 문서 지문 (대화 저장의 키). 비어 있으면 저장하지 않는다 */
+  docId: string;
+  /** 저장된 이전 대화 */
+  initialMessages: UiMessage[];
+  /** 답변 속 p.N 링크를 눌렀을 때 */
+  onGoToPage: (page: number) => void;
   settings: Settings;
   bridge: BridgeStatus | null;
   onOpenSettings: () => void;
@@ -33,11 +36,14 @@ export function ChatPanel({
   currentPage,
   selection,
   onClearSelection,
+  docId,
+  initialMessages,
+  onGoToPage,
   settings,
   bridge,
   onOpenSettings,
 }: Props) {
-  const [messages, setMessages] = useState<UiMessage[]>([]);
+  const [messages, setMessages] = useState<UiMessage[]>(initialMessages);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +55,14 @@ export function ChatPanel({
   }, [messages]);
 
   const provider = getProvider(settings.provider);
+  const persist = settings.saveHistory && !!docId && !!doc;
+
+  // 답변이 끝날 때마다(스트리밍 중에는 저장하지 않음) 이 문서의 대화를 저장한다.
+  const loadedMessages = useRef(initialMessages);
+  useEffect(() => {
+    if (busy || !persist || !doc || messages === loadedMessages.current) return;
+    updateDoc(docId, { name: fileName, numPages: doc.numPages }, { messages });
+  }, [messages, busy, persist, doc, docId, fileName]);
 
   const send = async (raw: string) => {
     const question = raw.trim();
@@ -86,7 +100,8 @@ export function ChatPanel({
 
       // 이전 턴은 질문 원문만, 이번 턴에만 현재 페이지 문맥을 붙인다.
       await provider.stream(settings, {
-        history: history.map(({ role, content }) => ({ role, content })),
+        // 화면에는 전체 대화가 남지만, AI 에게는 최근 대화만 보내 비용이 계속 늘지 않게 한다.
+        history: trimHistory(history.map(({ role, content }) => ({ role, content }))),
         prompt: ctx.prompt,
         signal: ac.signal,
         onText: (delta) =>
@@ -124,6 +139,11 @@ export function ChatPanel({
         <strong>Claude</strong>
         <span className="muted">{provider.describe(settings)}</span>
         <span className="spacer" />
+        {persist && (
+          <span className="muted small-text" title="이 문서의 대화와 마지막으로 본 페이지가 이 PC에 저장됩니다">
+            💾 저장 중
+          </span>
+        )}
         {messages.length > 0 && (
           <button className="ghost small" onClick={() => !busy && setMessages([])} disabled={busy}>
             대화 지우기
@@ -140,6 +160,12 @@ export function ChatPanel({
                   지금 보고 있는 <b>{currentPage}쪽</b> 근처를 자동으로 읽고 답해요.
                   <br />
                   페이지를 말하지 않아도 됩니다.
+                  {persist && (
+                    <>
+                      <br />
+                      <span className="small-text">이 문서의 대화는 이 PC에 저장되어 다음에 이어집니다.</span>
+                    </>
+                  )}
                 </>
               ) : (
                 "PDF를 열면 여기서 바로 질문할 수 있어요."
@@ -168,7 +194,24 @@ export function ChatPanel({
             )}
             {m.role === "assistant" ? (
               m.content ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    // 답변 속 (p.120) 은 눌러서 그 쪽으로 이동, 그 밖의 링크는 새 창(기본 브라우저)으로
+                    a: ({ href, children }) =>
+                      href?.startsWith("#page-") ? (
+                        <button type="button" className="pagelink" onClick={() => onGoToPage(Number(href.slice(6)))}>
+                          {children}
+                        </button>
+                      ) : (
+                        <a href={href} target="_blank" rel="noreferrer">
+                          {children}
+                        </a>
+                      ),
+                  }}
+                >
+                  {linkifyPages(m.content, doc?.numPages ?? 0)}
+                </ReactMarkdown>
               ) : (
                 <span className="muted">생각 중…</span>
               )

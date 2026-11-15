@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CC_MODELS, MODELS, type ProviderId, type Settings } from "../lib/settings";
 import type { BridgeStatus } from "../lib/bridgeClient";
+import { HistoryManager } from "./HistoryManager";
 
 interface Props {
   settings: Settings;
@@ -138,6 +139,21 @@ export function SettingsDialog({ settings, bridge, onRefreshBridge, onSave, onCl
         <p className="hint">
           질문할 때마다 이 범위의 텍스트가 Claude에게 전송됩니다. 범위가 넓을수록 사용량이 늘어납니다.
         </p>
+
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={draft.saveHistory}
+            onChange={(e) => setDraft({ ...draft, saveHistory: e.target.checked })}
+          />
+          문서별 대화와 마지막 페이지를 이 PC에 저장
+        </label>
+        <p className="hint">
+          같은 PDF를 다시 열면 이전 대화와 보던 페이지가 이어집니다. 문서는 파일 이름이 아니라 내용으로 구분하며, PDF
+          파일과 본문 텍스트는 저장하지 않고 대화·마지막 페이지·파일 이름만 이 PC 안에 저장합니다. 끄면 새 기록은
+          저장되지 않습니다.
+        </p>
+        <HistoryManager />
 
         <div className="modal-actions">
           <button type="button" className="ghost" onClick={onClose}>

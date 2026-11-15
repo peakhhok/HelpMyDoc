@@ -9,6 +9,8 @@ PDF를 왼쪽에 열고, 오른쪽의 AI(Claude)에게 **페이지 번호를 말
 - PDF 열기 (파일 선택 / 드래그&드롭), 500쪽 이상도 보이는 쪽만 렌더링
 - 현재 보고 있는 페이지 자동 추적 → 질문마다 그 주변 페이지 텍스트를 자동 첨부
 - PDF에서 텍스트를 드래그해 선택하면 해당 문장을 함께 전달
+- **문서별 기억**: 같은 PDF를 다시 열면 이전 대화와 마지막으로 보던 페이지가 이어집니다. 문서는 파일 이름이 아니라 **내용의 해시**로 구분해서, 이름을 바꿔도 같은 문서로 알아봅니다. (설정에서 끄거나 삭제할 수 있음)
+- 답변 속 `(p.120)`을 누르면 그 쪽으로 이동
 - Claude 스트리밍 응답, Markdown 렌더링, 중지 버튼
 - **두 가지 연결 방식** (⚙ 설정에서 선택)
   1. **API 키**: 내 Anthropic API 키로 브라우저에서 직접 호출 (키는 localStorage에만 저장)
@@ -66,7 +68,10 @@ npm start            # http://localhost:5174  (--port 로 변경 가능)
 
 ## 프라이버시
 
-질문할 때마다 현재 페이지 주변의 텍스트가 선택한 방식의 Claude(Anthropic API 또는 내 PC의 Claude Code)로 전송됩니다. 그 외에는 어떤 서버로도 문서가 전송되지 않습니다.
+- **전송**: 질문할 때마다 현재 페이지 주변의 텍스트와 질문(필요하면 이전 대화 최근 20개 메시지)이 선택한 방식의 Claude(Anthropic API 또는 내 PC의 Claude Code)로 전송됩니다. Anthropic 쪽의 처리·보관은 계정의 개인정보 설정과 Anthropic 정책을 따르며 이 앱이 바꿀 수 없습니다.
+- **저장**: 기본값으로 **문서별 대화 내용·마지막으로 본 페이지·파일 이름**을 이 PC 안(브라우저/앱의 IndexedDB)에 저장합니다. PDF 파일과 본문 텍스트는 저장하지 않으며, 어떤 서버로도 보내지 않습니다. ⚙ 설정에서 저장을 끄거나 문서별·전체 기록을 삭제할 수 있습니다.
+- **Claude Code 모드**에서는 Claude Code 자체의 세션 기록도 내 PC에 남기지 않도록 실행합니다(`--no-session-persistence`).
+- 설정(API 키 포함)은 localStorage에 평문으로 저장됩니다.
 
 ## 개발
 
@@ -83,6 +88,9 @@ npm run format      # 포맷
 ```
 src/lib/pdf.ts        pdf.js 로딩, 페이지 텍스트 추출(캐시)
 src/lib/context.ts    현재 페이지 ±N쪽 + 선택 텍스트로 프롬프트 구성
+src/lib/docStore.ts   문서별 대화·마지막 페이지 저장 (IndexedDB)
+src/lib/docId.ts      파일 내용 해시(SHA-256)로 문서 식별
+src/lib/history.ts    대화 길이 제한, 답변 속 p.N 링크 변환
 electron/main.mjs     데스크톱 앱 (창 + 로컬 서버 시작, 외부 링크는 기본 브라우저로)
 electron/path-fix.mjs 맥/리눅스 GUI 실행 시 PATH 보정 (claude 를 찾기 위해)
 src/lib/providers/    연결 방식 (API 키 / 로컬 Claude Code) — Provider 인터페이스 + 레지스트리

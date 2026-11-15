@@ -25,6 +25,7 @@
     "@vitejs/plugin-react": "^6.3.0",
     "electron": "^45.3.2",
     "electron-builder": "^26.18.0",
+    "fake-indexeddb": "^6.2.8",
     "pdfjs-dist": "^6.5.438",
     "prettier": "^3.10.1",
     "react": "^19.3.1",

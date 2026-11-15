@@ -406,3 +406,61 @@ a {
 .status.bad {
   background: color-mix(in srgb, #d93f3f 12%, transparent);
 }
+
+.small-text {
+  font-size: 12px;
+}
+.pagelink {
+  display: inline;
+  padding: 0 6px;
+  margin: 0 1px;
+  font-size: inherit;
+  line-height: inherit;
+  border-radius: 6px;
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.pagelink:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 4px 4px 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.history-item .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history-item .meta {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.check {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+  font-weight: 600;
+}
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}

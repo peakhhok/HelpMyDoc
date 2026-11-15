@@ -23,6 +23,8 @@ export interface Settings {
   model: string;
   /** 현재 페이지 앞뒤로 함께 보낼 페이지 수 */
   radius: number;
+  /** 문서별 대화와 마지막으로 본 페이지를 이 PC 에 저장 */
+  saveHistory: boolean;
 }
 
 const KEY = "helpmydoc.settings.v1";
@@ -33,6 +35,7 @@ export const DEFAULT_SETTINGS: Settings = {
   apiKey: "",
   model: MODELS[0].id,
   radius: 1,
+  saveHistory: true,
 };
 
 export function loadSettings(): Settings {

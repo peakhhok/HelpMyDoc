@@ -4,6 +4,9 @@ import { PdfViewer, type PdfViewerHandle } from "./components/PdfViewer";
 import { ChatPanel } from "./components/ChatPanel";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { fetchBridgeStatus, type BridgeStatus } from "./lib/bridgeClient";
+import { sha256Hex } from "./lib/docId";
+import { loadDoc, updateDoc } from "./lib/docStore";
+import type { UiMessage } from "./lib/history";
 import { openPdf } from "./lib/pdf";
 import { loadSettings, saveSettings, type Settings } from "./lib/settings";
 
@@ -13,6 +16,9 @@ const MAX_SCALE = 3;
 export default function App() {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [fileName, setFileName] = useState("");
+  /** 문서 지문(저장의 키)과, 저장돼 있던 대화·마지막 페이지 */
+  const [docId, setDocId] = useState("");
+  const [restored, setRestored] = useState<{ messages: UiMessage[]; lastPage: number }>({ messages: [], lastPage: 1 });
   const [loadError, setLoadError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageInput, setPageInput] = useState("1");
@@ -24,6 +30,10 @@ export default function App() {
   const [chatWidth, setChatWidth] = useState(440);
   const [dragOver, setDragOver] = useState(false);
   const docRef = useRef<PDFDocumentProxy | null>(null);
+  // 드래그&드롭 핸들러는 처음 렌더의 openFile 을 잡고 있으므로 최신 설정은 ref 로 읽는다.
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const hasRecord = useRef(false);
   const viewerRef = useRef<PdfViewerHandle>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -44,13 +54,24 @@ export default function App() {
     }
     try {
       setLoadError(null);
-      const next = await openPdf(await file.arrayBuffer());
+      const buffer = await file.arrayBuffer();
+      // 이름이 아니라 파일 내용의 해시로 같은 문서인지 알아본다.
+      // (pdf.js 는 버퍼를 워커로 넘겨 쓸 수 없게 만들 수 있으므로 해시를 먼저 계산한다)
+      const hash = await sha256Hex(buffer);
+      const next = await openPdf(buffer);
+      const id = hash ?? next.fingerprints[0] ?? "";
+      const record = settingsRef.current.saveHistory && id ? await loadDoc(id) : undefined;
+      const lastPage = Math.min(Math.max(1, record?.lastPage ?? 1), next.numPages);
+      hasRecord.current = !!record;
       docRef.current?.loadingTask.destroy();
       docRef.current = next;
+      // 한 번에 반영해야 채팅창이 저장된 대화로 시작하고 뷰어가 저장된 페이지로 열린다.
       setDoc(next);
       setFileName(file.name);
-      setPage(1);
-      setPageInput("1");
+      setDocId(id);
+      setRestored({ messages: record?.messages ?? [], lastPage });
+      setPage(lastPage);
+      setPageInput(String(lastPage));
       setSelection("");
     } catch (e) {
       setLoadError(`PDF를 열지 못했습니다: ${(e as Error).message}`);
@@ -61,6 +82,17 @@ export default function App() {
     setPage(p);
     setPageInput(String(p));
   }, []);
+
+  // 마지막으로 본 페이지를 저장한다. (스크롤 중에는 잦은 쓰기를 피하려고 잠시 기다린다)
+  useEffect(() => {
+    if (!doc || !docId || !settings.saveHistory) return;
+    if (page === 1 && !hasRecord.current) return; // 기록 없는 문서를 열기만 한 경우는 남기지 않는다
+    const t = setTimeout(() => {
+      hasRecord.current = true;
+      updateDoc(docId, { name: fileName, numPages: doc.numPages }, { lastPage: page });
+    }, 600);
+    return () => clearTimeout(t);
+  }, [page, doc, docId, fileName, settings.saveHistory]);
 
   // 창 어디에 놓아도 열리도록 드래그&드롭
   useEffect(() => {
@@ -162,6 +194,7 @@ export default function App() {
               key={fileName + doc.fingerprints[0]}
               ref={viewerRef}
               doc={doc}
+              initialPage={restored.lastPage}
               scale={scale}
               onPageChange={onPageChange}
               onSelect={setSelection}
@@ -177,7 +210,10 @@ export default function App() {
         </section>
         <div className="resizer" onPointerDown={startResize} role="separator" aria-orientation="vertical" />
         <ChatPanel
-          key={fileName}
+          key={fileName + docId}
+          docId={docId}
+          initialMessages={restored.messages}
+          onGoToPage={(n) => viewerRef.current?.goTo(n)}
           doc={doc}
           fileName={fileName}
           currentPage={page}

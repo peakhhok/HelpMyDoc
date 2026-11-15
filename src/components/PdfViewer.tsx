@@ -12,6 +12,8 @@ interface Props {
   scale: number;
   onPageChange: (page: number) => void;
   onSelect: (text: string) => void;
+  /** 처음 열 때 이동할 페이지 (저장된 마지막 페이지) */
+  initialPage?: number;
 }
 
 interface Size {
@@ -126,13 +128,15 @@ const PageView = ({
 };
 
 export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
-  { doc, scale, onPageChange, onSelect },
+  { doc, scale, onPageChange, onSelect, initialPage },
   ref,
 ) {
   const rootRef = useRef<HTMLDivElement>(null);
   const pageEls = useRef<(HTMLDivElement | null)[]>([]);
   const [baseSize, setBaseSize] = useState<Size | null>(null);
   const lastPage = useRef(0);
+  // 저장된 페이지로 이동하기 전에는 "현재 페이지 = 1" 을 알리지 않는다 (마지막 페이지 기록을 덮어쓰지 않도록)
+  const pendingInitial = useRef((initialPage ?? 1) > 1);
   const ratio = useRef(0);
 
   useEffect(() => {
@@ -154,7 +158,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
   /** 화면 세로 중앙에 걸린 페이지를 "현재 페이지"로 본다. (이분 탐색) */
   const detectPage = useCallback(() => {
     const root = rootRef.current;
-    if (!root) return;
+    if (!root || pendingInitial.current) return;
     const center = root.scrollTop + root.clientHeight / 2;
     let lo = 1;
     let hi = doc.numPages;
@@ -185,6 +189,16 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
     root.scrollTop = ratio.current * root.scrollHeight;
     detectPage();
   }, [scale, baseSize, detectPage]);
+
+  // 페이지 요소가 등록된 뒤(자식 effect 이후) 저장된 마지막 페이지로 이동한다.
+  useEffect(() => {
+    if (!baseSize || !pendingInitial.current) return;
+    pendingInitial.current = false;
+    const root = rootRef.current;
+    const el = pageEls.current[Math.min(Math.max(1, initialPage ?? 1), doc.numPages)];
+    if (root && el) root.scrollTo({ top: el.offsetTop - 12 });
+    requestAnimationFrame(detectPage);
+  }, [baseSize, initialPage, doc, detectPage]);
 
   useImperativeHandle(ref, () => ({
     goTo(page: number) {
