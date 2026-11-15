@@ -25,6 +25,8 @@ export interface Settings {
   radius: number;
   /** 문서별 대화와 마지막으로 본 페이지를 이 PC 에 저장 */
   saveHistory: boolean;
+  /** 첫 실행 설정(연결 방식 선택)을 마쳤는가 */
+  onboarded: boolean;
 }
 
 const KEY = "helpmydoc.settings.v1";
@@ -36,12 +38,19 @@ export const DEFAULT_SETTINGS: Settings = {
   model: MODELS[0].id,
   radius: 1,
   saveHistory: true,
+  onboarded: false,
 };
 
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    if (raw) {
+      const saved = JSON.parse(raw);
+      const merged: Settings = { ...DEFAULT_SETTINGS, ...saved };
+      // 이 필드가 생기기 전부터 쓰던 사용자는 첫 실행 화면을 다시 보여주지 않는다.
+      if (saved.onboarded === undefined) merged.onboarded = true;
+      return merged;
+    }
   } catch {
     /* localStorage 를 쓸 수 없는 환경이면 기본값 */
   }

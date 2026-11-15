@@ -3,12 +3,14 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import { PdfViewer, type PdfViewerHandle } from "./components/PdfViewer";
 import { ChatPanel } from "./components/ChatPanel";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { SetupScreen } from "./components/SetupScreen";
 import { fetchBridgeStatus, type BridgeStatus } from "./lib/bridgeClient";
 import { sha256Hex } from "./lib/docId";
 import { loadDoc, updateDoc } from "./lib/docStore";
 import type { UiMessage } from "./lib/history";
 import { openPdf } from "./lib/pdf";
 import { loadSettings, saveSettings, type Settings } from "./lib/settings";
+import { evaluateSetup } from "./lib/setup";
 
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 3;
@@ -27,6 +29,14 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [showSettings, setShowSettings] = useState(false);
   const [bridge, setBridge] = useState<BridgeStatus | null>(null);
+  /** 시작 화면(연결 설정)을 사용자가 직접 열었음 */
+  const [forceSetup, setForceSetup] = useState(false);
+  /** 시작할 때 연결이 안 돼 있어 시작 화면을 띄운 뒤, 사용자가 닫을 때까지 유지 */
+  const [sticky, setSticky] = useState(false);
+  /** 시작 시 연결 점검을 한 번 마쳤는가 (이후 로그인이 풀리면 화면을 막지 않고 배너로 알린다) */
+  const [startupDone, setStartupDone] = useState(false);
+  /** 이번 실행 동안만 연결 점검을 건너뜀 */
+  const [skipGate, setSkipGate] = useState(false);
   const [chatWidth, setChatWidth] = useState(440);
   const [dragOver, setDragOver] = useState(false);
   const docRef = useRef<PDFDocumentProxy | null>(null);
@@ -37,14 +47,56 @@ export default function App() {
   const viewerRef = useRef<PdfViewerHandle>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const refreshBridge = useCallback(() => {
-    setBridge(null);
+  const refreshBridge = useCallback((silent?: boolean) => {
+    if (!silent) setBridge(null);
     fetchBridgeStatus().then(setBridge);
   }, []);
 
   useEffect(() => {
     fetchBridgeStatus().then(setBridge);
   }, []);
+
+  const claudeMode = settings.provider === "claude-code";
+  const setup = evaluateSetup(bridge);
+
+  // 시작할 때 한 번: Claude Code 방식인데 준비가 안 됐다면 시작 화면을 띄운다.
+  useEffect(() => {
+    if (bridge === null || startupDone) return;
+    setStartupDone(true);
+    if (claudeMode && !skipGate && setup.step !== "ready") setSticky(true);
+  }, [bridge, startupDone, claudeMode, skipGate, setup.step]);
+
+  // 창으로 돌아올 때마다 조용히 다시 확인한다. (터미널에서 로그인하고 돌아오면 바로 반영, 로그인이 풀렸으면 배너)
+  useEffect(() => {
+    if (!claudeMode) return;
+    const onFocus = () => document.visibilityState === "visible" && refreshBridge(true);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [claudeMode, refreshBridge]);
+
+  const showSetup = !settings.onboarded || forceSetup || sticky || (claudeMode && !startupDone && !skipGate);
+  const closeSetup = () => {
+    setForceSetup(false);
+    setSticky(false);
+  };
+  const completeSetup = (patch: Partial<Settings>) => {
+    const next = { ...settings, ...patch };
+    setSettings(next);
+    saveSettings(next);
+    closeSetup();
+  };
+  const skipSetup = () => {
+    // 처음 실행이면 '설정 마침'으로 기록해 매번 묻지 않고, 이후에는 이번 실행에만 건너뛴다.
+    if (!settings.onboarded) completeSetup({ onboarded: true });
+    else {
+      setSkipGate(true);
+      closeSetup();
+    }
+  };
 
   const openFile = async (file: File | undefined) => {
     if (!file) return;
@@ -222,19 +274,36 @@ export default function App() {
           settings={settings}
           bridge={bridge}
           onOpenSettings={() => setShowSettings(true)}
+          onOpenSetup={() => setForceSetup(true)}
+          onRecheckBridge={() => refreshBridge(true)}
         />
       </main>
 
       {dragOver && <div className="drop-overlay">PDF를 놓아서 열기</div>}
+      {showSetup && (
+        <SetupScreen
+          mode={settings.onboarded ? "repair" : "first-run"}
+          settings={settings}
+          bridge={bridge}
+          onRefresh={refreshBridge}
+          onComplete={completeSetup}
+          onSkip={skipSetup}
+        />
+      )}
       {showSettings && (
         <SettingsDialog
           settings={settings}
           bridge={bridge}
-          onRefreshBridge={refreshBridge}
+          onRefreshBridge={() => refreshBridge()}
+          onOpenSetup={() => {
+            setShowSettings(false);
+            setForceSetup(true);
+          }}
           onClose={() => setShowSettings(false)}
           onSave={(s) => {
-            setSettings(s);
-            saveSettings(s);
+            const next = { ...s, onboarded: true };
+            setSettings(next);
+            saveSettings(next);
             setShowSettings(false);
           }}
         />

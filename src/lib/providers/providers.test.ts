@@ -34,12 +34,12 @@ describe("claude-code provider", () => {
 
   it("브리지가 없거나 아직 확인 전이면 사용 불가", () => {
     expect(p.unavailableReason(env(null))).not.toBeNull();
-    expect(p.unavailableReason(env({ available: false }))).not.toBeNull();
+    expect(p.unavailableReason(env({ bridgeReachable: true, available: false }))).not.toBeNull();
   });
   it("로그인되지 않았으면 사용 불가, 확인 불가(undefined)는 시도해 본다", () => {
-    expect(p.unavailableReason(env({ available: true, loggedIn: false }))).not.toBeNull();
-    expect(p.unavailableReason(env({ available: true, loggedIn: true }))).toBeNull();
-    expect(p.unavailableReason(env({ available: true }))).toBeNull();
+    expect(p.unavailableReason(env({ bridgeReachable: true, available: true, loggedIn: false }))).not.toBeNull();
+    expect(p.unavailableReason(env({ bridgeReachable: true, available: true, loggedIn: true }))).toBeNull();
+    expect(p.unavailableReason(env({ bridgeReachable: true, available: true }))).toBeNull();
   });
   it("모델 별칭을 사람이 읽는 이름으로 보여준다", () => {
     expect(p.describe(settings({ ccModel: "haiku" }))).toBe("Claude Code · Haiku");

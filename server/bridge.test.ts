@@ -138,6 +138,8 @@ describe.skipIf(process.platform === "win32")("claude code bridge", () => {
       const r = await request({ path: "/api/claude-code/status" });
       expect(r.status).toBe(200);
       expect(JSON.parse(r.text)).toEqual({
+        platform: process.platform,
+        apiKeyEnv: false,
         available: true,
         version: "9.9.9 (Claude Code)",
         loggedIn: true,
@@ -153,9 +155,26 @@ describe.skipIf(process.platform === "win32")("claude code bridge", () => {
       const saved = process.env.PATH;
       process.env.PATH = "/nonexistent";
       try {
-        expect(JSON.parse((await request({ path: "/api/claude-code/status" })).text)).toEqual({ available: false });
+        expect(JSON.parse((await request({ path: "/api/claude-code/status" })).text)).toEqual({
+          platform: process.platform,
+          apiKeyEnv: false,
+          available: false,
+        });
       } finally {
         process.env.PATH = saved;
+      }
+    });
+  });
+
+  describe("status 부가 정보", () => {
+    it("환경변수 API 키가 있는지만 알려주고 값은 노출하지 않는다", async () => {
+      process.env.ANTHROPIC_API_KEY = "sk-ant-super-secret";
+      try {
+        const r = await request({ path: "/api/claude-code/status" });
+        expect(JSON.parse(r.text).apiKeyEnv).toBe(true);
+        expect(r.text).not.toContain("sk-ant-super-secret");
+      } finally {
+        delete process.env.ANTHROPIC_API_KEY;
       }
     });
   });

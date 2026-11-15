@@ -9,6 +9,7 @@ import { updateDoc } from "../lib/docStore";
 import { linkifyPages, trimHistory, type UiMessage } from "../lib/history";
 import { getPageText } from "../lib/pdf";
 import { getProvider } from "../lib/providers";
+import { evaluateSetup } from "../lib/setup";
 import type { Settings } from "../lib/settings";
 
 interface Props {
@@ -26,6 +27,10 @@ interface Props {
   settings: Settings;
   bridge: BridgeStatus | null;
   onOpenSettings: () => void;
+  /** 연결 설정(시작 화면) 열기 */
+  onOpenSetup: () => void;
+  /** Claude Code 상태를 조용히 다시 확인 (오류가 났을 때 로그인 풀림 등을 알아채기 위해) */
+  onRecheckBridge: () => void;
 }
 
 const QUICK_PROMPTS = ["여기서 중요한 부분을 요약해줘", "이 페이지를 쉽게 설명해줘", "핵심 개념을 정리해줘"];
@@ -42,6 +47,8 @@ export function ChatPanel({
   settings,
   bridge,
   onOpenSettings,
+  onOpenSetup,
+  onRecheckBridge,
 }: Props) {
   const [messages, setMessages] = useState<UiMessage[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -56,6 +63,9 @@ export function ChatPanel({
 
   const provider = getProvider(settings.provider);
   const persist = settings.saveHistory && !!docId && !!doc;
+  // 사용 중에 Claude Code 연결이 끊기면(로그아웃 등) 화면을 막지 않고 배너로 알린다.
+  const setupStep = evaluateSetup(bridge).step;
+  const connectionIssue = provider.id === "claude-code" && setupStep !== "ready" && setupStep !== "checking";
 
   // 답변이 끝날 때마다(스트리밍 중에는 저장하지 않음) 이 문서의 대화를 저장한다.
   const loadedMessages = useRef(initialMessages);
@@ -71,7 +81,7 @@ export function ChatPanel({
     const reason = provider.unavailableReason({ settings, bridge });
     if (reason) {
       setError(reason);
-      return onOpenSettings();
+      return provider.id === "claude-code" ? onOpenSetup() : onOpenSettings();
     }
 
     setError(null);
@@ -115,6 +125,7 @@ export function ChatPanel({
     } catch (e) {
       const aborted = (e as Error).name === "AbortError";
       if (!aborted) {
+        if (provider.id === "claude-code") onRecheckBridge(); // 로그인이 풀렸는지 등을 다시 확인
         setError(
           e instanceof ClaudeError || e instanceof ClaudeCodeError ? e.message : `오류: ${(e as Error).message}`,
         );
@@ -223,6 +234,21 @@ export function ChatPanel({
         {error && <div className="error">{error}</div>}
         <div ref={bottomRef} />
       </div>
+
+      {connectionIssue && (
+        <div className="banner" role="alert">
+          <span>
+            {setupStep === "login"
+              ? "Claude Code 로그인이 필요해요."
+              : setupStep === "install"
+                ? "Claude Code를 찾을 수 없어요."
+                : "내 PC의 Claude Code에 연결할 수 없어요."}
+          </span>
+          <button type="button" className="small" onClick={onOpenSetup}>
+            연결 점검
+          </button>
+        </div>
+      )}
 
       <div className="composer">
         {selection.trim() && (

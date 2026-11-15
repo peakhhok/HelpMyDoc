@@ -1,20 +1,28 @@
 /** 로컬 브리지(server/bridge.mjs)를 통해 내 PC의 Claude Code 를 호출한다. */
 export interface BridgeStatus {
+  /** 로컬 브리지에 연결됨. 정적 호스팅(GitHub Pages 등)이면 false */
+  bridgeReachable: boolean;
   /** 브리지가 있고 `claude` 가 설치되어 있음 */
   available: boolean;
   version?: string;
   /** undefined 면 확인 불가 */
   loggedIn?: boolean;
   authMethod?: string | null;
+  /** 브리지가 실행 중인 OS (process.platform) */
+  platform?: string;
+  /** 환경변수 ANTHROPIC_API_KEY 가 설정돼 있음 (값은 알 수 없다) */
+  apiKeyEnv?: boolean;
 }
 
 export async function fetchBridgeStatus(): Promise<BridgeStatus> {
   try {
     const res = await fetch("/api/claude-code/status", { cache: "no-store" });
-    if (!res.ok || !(res.headers.get("content-type") ?? "").includes("application/json")) return { available: false };
-    return (await res.json()) as BridgeStatus;
+    if (!res.ok || !(res.headers.get("content-type") ?? "").includes("application/json")) {
+      return { bridgeReachable: false, available: false };
+    }
+    return { ...(await res.json()), bridgeReachable: true } as BridgeStatus;
   } catch {
-    return { available: false };
+    return { bridgeReachable: false, available: false };
   }
 }
 

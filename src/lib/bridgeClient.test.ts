@@ -26,7 +26,8 @@ describe("fetchBridgeStatus", () => {
         .fn()
         .mockResolvedValue(new Response(JSON.stringify(status), { headers: { "content-type": "application/json" } })),
     );
-    expect(await fetchBridgeStatus()).toEqual(status);
+    // 연결에 성공했다는 사실(bridgeReachable)이 덧붙는다
+    expect(await fetchBridgeStatus()).toEqual({ ...status, bridgeReachable: true });
   });
 
   it("정적 호스팅(SPA 가 HTML 을 돌려주는 경우)이면 사용 불가", async () => {
@@ -34,12 +35,12 @@ describe("fetchBridgeStatus", () => {
       "fetch",
       vi.fn().mockResolvedValue(new Response("<html></html>", { headers: { "content-type": "text/html" } })),
     );
-    expect(await fetchBridgeStatus()).toEqual({ available: false });
+    expect(await fetchBridgeStatus()).toEqual({ bridgeReachable: false, available: false });
   });
 
   it("네트워크 오류여도 던지지 않고 사용 불가로 본다", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
-    expect(await fetchBridgeStatus()).toEqual({ available: false });
+    expect(await fetchBridgeStatus()).toEqual({ bridgeReachable: false, available: false });
   });
 });
 

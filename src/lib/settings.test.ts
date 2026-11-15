@@ -26,7 +26,18 @@ describe("settings", () => {
 
     const old = fakeStorage({ "helpmydoc.settings.v1": JSON.stringify({ apiKey: "old" }) });
     vi.stubGlobal("localStorage", old);
-    expect(loadSettings()).toEqual({ ...DEFAULT_SETTINGS, apiKey: "old" });
+    expect(loadSettings()).toEqual({ ...DEFAULT_SETTINGS, apiKey: "old", onboarded: true });
+  });
+
+  it("onboarded 필드가 생기기 전부터 쓰던 사용자는 첫 실행 화면을 건너뛴다", () => {
+    vi.stubGlobal("localStorage", fakeStorage({ "helpmydoc.settings.v1": JSON.stringify({ apiKey: "old" }) }));
+    expect(loadSettings().onboarded).toBe(true);
+    // 저장된 설정이 전혀 없는 새 사용자는 첫 실행 화면을 본다
+    vi.stubGlobal("localStorage", fakeStorage());
+    expect(loadSettings().onboarded).toBe(false);
+    // 명시적으로 저장된 값은 존중한다
+    vi.stubGlobal("localStorage", fakeStorage({ "helpmydoc.settings.v1": JSON.stringify({ onboarded: false }) }));
+    expect(loadSettings().onboarded).toBe(false);
   });
 
   it("깨진 JSON 이면 기본값", () => {

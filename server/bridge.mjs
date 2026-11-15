@@ -54,9 +54,12 @@ function run(cmd, args, timeout = 8000) {
 async function status() {
   mkdirSync(WORKDIR, { recursive: true });
   const cmd = resolveClaudeCommand();
+  // platform: 화면에서 OS 에 맞는 설치 안내를 보여주기 위함
+  // apiKeyEnv: 환경변수 API 키가 있으면 Claude Code 가 구독 대신 API 과금으로 동작할 수 있어 경고하기 위함 (값은 노출하지 않는다)
+  const base = { platform: process.platform, apiKeyEnv: !!process.env.ANTHROPIC_API_KEY };
   const v = await run(cmd, ["--version"]);
-  if (v.err) return { available: false };
-  const out = { available: true, version: v.stdout.trim().split("\n")[0] };
+  if (v.err) return { ...base, available: false };
+  const out = { ...base, available: true, version: v.stdout.trim().split("\n")[0] };
   const a = await run(cmd, ["auth", "status", "--json"]);
   try {
     const j = JSON.parse(a.stdout);

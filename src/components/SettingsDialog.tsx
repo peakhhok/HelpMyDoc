@@ -1,33 +1,42 @@
 import { useState } from "react";
 import { CC_MODELS, MODELS, type ProviderId, type Settings } from "../lib/settings";
 import type { BridgeStatus } from "../lib/bridgeClient";
+import { evaluateSetup } from "../lib/setup";
 import { HistoryManager } from "./HistoryManager";
 
 interface Props {
   settings: Settings;
   bridge: BridgeStatus | null;
   onRefreshBridge: () => void;
+  /** 연결 점검(시작 화면) 열기 */
+  onOpenSetup: () => void;
   onSave: (s: Settings) => void;
   onClose: () => void;
 }
 
 function bridgeLine(b: BridgeStatus | null): { ok: boolean; text: string } {
-  if (!b) return { ok: false, text: "확인 중…" };
-  if (!b.available)
-    return {
-      ok: false,
-      text: "사용할 수 없음 — 이 앱을 `npm run dev` 또는 `npm start`로 내 PC에서 실행하고, Claude Code(claude)가 설치되어 있어야 합니다.",
-    };
-  if (b.loggedIn === false)
-    return {
-      ok: false,
-      text: `Claude Code ${b.version ?? ""} 감지됨 — 로그인이 필요합니다. 터미널에서 \`claude\` 를 실행해 로그인하세요.`,
-    };
-  const via = b.authMethod === "oauth_token" ? "구독 로그인" : b.authMethod ? `인증: ${b.authMethod}` : "로그인됨";
-  return { ok: true, text: `Claude Code ${b.version ?? ""} · ${via}` };
+  const setup = evaluateSetup(b);
+  switch (setup.step) {
+    case "checking":
+      return { ok: false, text: "확인 중…" };
+    case "bridge":
+      return {
+        ok: false,
+        text: "이 PC와 연결할 수 없음 — 데스크톱 앱 또는 내 PC에서 `npm run dev` / `npm start`로 실행해야 합니다.",
+      };
+    case "install":
+      return { ok: false, text: "Claude Code가 설치되어 있지 않습니다." };
+    case "login":
+      return { ok: false, text: `Claude Code ${b?.version ?? ""} 감지됨 — 로그인이 필요합니다.` };
+    case "ready": {
+      const via =
+        setup.authKind === "subscription" ? "구독 로그인" : setup.authKind === "api-key" ? "API 키 인증" : "로그인됨";
+      return { ok: true, text: `Claude Code ${b?.version ?? ""} · ${via}${setup.warnings.length ? " ⚠" : ""}` };
+    }
+  }
 }
 
-export function SettingsDialog({ settings, bridge, onRefreshBridge, onSave, onClose }: Props) {
+export function SettingsDialog({ settings, bridge, onRefreshBridge, onOpenSetup, onSave, onClose }: Props) {
   const [draft, setDraft] = useState(settings);
   const line = bridgeLine(bridge);
 
@@ -105,9 +114,16 @@ export function SettingsDialog({ settings, bridge, onRefreshBridge, onSave, onCl
             <div className={line.ok ? "status ok" : "status bad"}>
               {line.ok ? "● " : "○ "}
               {line.text}
-              <button type="button" className="ghost small" onClick={onRefreshBridge}>
-                다시 확인
-              </button>
+              <span className="status-actions">
+                {!line.ok && (
+                  <button type="button" className="ghost small" onClick={onOpenSetup}>
+                    연결 점검
+                  </button>
+                )}
+                <button type="button" className="ghost small" onClick={onRefreshBridge}>
+                  다시 확인
+                </button>
+              </span>
             </div>
             <label>
               모델
