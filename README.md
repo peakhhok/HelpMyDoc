@@ -69,7 +69,7 @@ npm start            # http://localhost:5174  (--port 로 변경 가능)
 
 ## 프라이버시
 
-- **전송**: 질문할 때마다 현재 페이지 주변의 텍스트와 질문(필요하면 이전 대화 최근 20개 메시지)이 선택한 방식의 Claude(Anthropic API 또는 내 PC의 Claude Code)로 전송됩니다. Anthropic 쪽의 처리·보관은 계정의 개인정보 설정과 Anthropic 정책을 따르며 이 앱이 바꿀 수 없습니다.
+- **전송**: 질문할 때마다 현재 페이지 주변의 텍스트와 질문(필요하면 이전 대화(메시지 100개 또는 총 6만 자 이내의 최근 분량))이 선택한 방식의 Claude(Anthropic API 또는 내 PC의 Claude Code)로 전송됩니다. Anthropic 쪽의 처리·보관은 계정의 개인정보 설정과 Anthropic 정책을 따르며 이 앱이 바꿀 수 없습니다.
 - **저장**: 기본값으로 **문서별 대화 내용·마지막으로 본 페이지·파일 이름**을 이 PC 안(브라우저/앱의 IndexedDB)에 저장합니다. PDF 파일과 본문 텍스트는 저장하지 않으며, 어떤 서버로도 보내지 않습니다. ⚙ 설정에서 저장을 끄거나 문서별·전체 기록을 삭제할 수 있습니다.
 - **Claude Code 모드**에서는 Claude Code 자체의 세션 기록도 내 PC에 남기지 않도록 실행합니다(`--no-session-persistence`).
 - 설정(API 키 포함)은 localStorage에 평문으로 저장됩니다.

@@ -5,16 +5,29 @@ export interface UiMessage extends ChatMessage {
   ref?: { from: number; to: number; selection: boolean; emptyPages: number[] };
 }
 
-/** AI 에게 보내는 이전 대화의 최대 메시지 수 (화면과 저장소에는 전체가 남는다) */
-export const MAX_HISTORY_MESSAGES = 20;
+/** AI 에게 보내는 이전 대화의 한도. 화면과 저장소에는 전체가 남는다. */
+export const MAX_HISTORY_MESSAGES = 100;
+/** 이전 대화의 총 글자 수 한도 (개수보다 이 한도가 먼저 걸리는 경우가 많다) */
+export const MAX_HISTORY_CHARS = 60_000;
 
 /**
- * 이전 대화 중 최근 max 개만 남긴다. 잘린 결과가 assistant 로 시작하면
+ * 이전 대화 중 최근 것만 남긴다. 메시지 수와 총 글자 수 중 먼저 걸리는 한도를 따르며,
+ * 가장 최근 메시지 하나는 길어도 항상 남긴다. 잘린 결과가 assistant 로 시작하면
  * 질문 없는 답변이 되므로 그 메시지는 버려 항상 user 로 시작하게 한다.
  */
-export function trimHistory<T extends ChatMessage>(history: T[], max = MAX_HISTORY_MESSAGES): T[] {
-  if (history.length <= max) return history;
-  const tail = history.slice(history.length - max);
+export function trimHistory<T extends ChatMessage>(
+  history: T[],
+  { maxMessages = MAX_HISTORY_MESSAGES, maxChars = MAX_HISTORY_CHARS } = {},
+): T[] {
+  let chars = 0;
+  let start = history.length;
+  while (start > 0 && history.length - start < maxMessages) {
+    const next = chars + history[start - 1].content.length;
+    if (next > maxChars && start < history.length) break;
+    chars = next;
+    start--;
+  }
+  const tail = history.slice(start);
   return tail[0]?.role === "assistant" ? tail.slice(1) : tail;
 }
 

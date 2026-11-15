@@ -8,17 +8,53 @@ const msgs = (n: number) =>
   }));
 
 describe("trimHistory", () => {
-  it("한도 이하면 그대로 돌려준다", () => {
+  it("한도 이하면 내용을 그대로 돌려준다", () => {
     const h = msgs(6);
-    expect(trimHistory(h, 20)).toBe(h);
+    expect(trimHistory(h)).toEqual(h);
   });
 
-  it("최근 메시지만 남기고, 항상 user 로 시작한다", () => {
+  it("메시지 수 한도: 최근 것만 남기고 항상 user 로 시작한다", () => {
     const h = msgs(10); // user, assistant, user, ... , assistant
-    expect(trimHistory(h, 4).map((m) => m.content)).toEqual(["6", "7", "8", "9"]); // 6 은 user
+    expect(trimHistory(h, { maxMessages: 4 }).map((m) => m.content)).toEqual(["6", "7", "8", "9"]); // 6 은 user
     // 자른 결과가 assistant 로 시작하면 그 메시지는 버린다
-    expect(trimHistory(h, 5).map((m) => m.content)).toEqual(["6", "7", "8", "9"]);
-    expect(trimHistory(h, 5)[0].role).toBe("user");
+    expect(trimHistory(h, { maxMessages: 5 }).map((m) => m.content)).toEqual(["6", "7", "8", "9"]);
+    expect(trimHistory(h, { maxMessages: 5 })[0].role).toBe("user");
+  });
+
+  it("글자 수 한도: 긴 답변이 쌓이면 개수와 상관없이 오래된 것부터 버린다", () => {
+    const h = [
+      { role: "user" as const, content: "q1" },
+      { role: "assistant" as const, content: "a".repeat(50) },
+      { role: "user" as const, content: "q2" },
+      { role: "assistant" as const, content: "b".repeat(50) },
+      { role: "user" as const, content: "q3" },
+      { role: "assistant" as const, content: "c".repeat(50) },
+    ];
+    // 뒤에서부터 c(50) + q3(2) + b(50) = 102 까지 담기고 q2 에서 한도를 넘는다.
+    // 결과가 assistant(b)로 시작하므로 b 는 버려서 user 로 시작하게 한다.
+    const out = trimHistory(h, { maxChars: 102 });
+    expect(out.map((m) => m.content[0])).toEqual(["q", "c"]); // q3, ccc…
+    expect(out[0].role).toBe("user");
+  });
+
+  it("가장 최근 메시지는 한도를 넘어도 남긴다", () => {
+    const h = [
+      { role: "user" as const, content: "x".repeat(500) },
+      { role: "assistant" as const, content: "y".repeat(500) },
+      { role: "user" as const, content: "z".repeat(500) },
+    ];
+    const out = trimHistory(h, { maxChars: 100 });
+    expect(out).toHaveLength(1);
+    expect(out[0].content[0]).toBe("z");
+  });
+
+  it("기본 한도는 넉넉하다 (대화 수십 번은 그대로 유지)", () => {
+    const h = msgs(80).map((m) => ({ ...m, content: "내용".repeat(100) })); // 메시지당 200자
+    expect(trimHistory(h)).toHaveLength(80);
+  });
+
+  it("빈 대화", () => {
+    expect(trimHistory([])).toEqual([]);
   });
 });
 
