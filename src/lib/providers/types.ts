@@ -1,6 +1,7 @@
 import type { ChatMessage } from "../anthropicApi";
 import type { BridgeStatus } from "../bridgeClient";
 import type { Settings } from "../settings";
+import type { TurnUsage, UsageLimits } from "../usage";
 
 export interface ProviderRequest {
   /** 이전 턴(질문 원문과 답변만; 문서 문맥은 포함하지 않음) */
@@ -9,6 +10,10 @@ export interface ProviderRequest {
   prompt: string;
   signal: AbortSignal;
   onText: (delta: string) => void;
+  /** 답변이 끝났을 때 이번 답변의 토큰 수 (알려주는 방식만) */
+  onUsage?: (usage: TurnUsage) => void;
+  /** 구독 한도 사용률 (알려주는 방식만) */
+  onLimits?: (limits: UsageLimits) => void;
 }
 
 export interface ProviderEnv {

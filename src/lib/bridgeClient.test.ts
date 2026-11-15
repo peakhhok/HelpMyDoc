@@ -75,6 +75,43 @@ describe("streamClaudeCode", () => {
     expect(JSON.parse(init.body)).toEqual({ prompt: "p", system: "s" });
   });
 
+  it("usage / limits 이벤트를 콜백으로 전달한다", async () => {
+    const limits = { fiveHour: { utilization: 0.47, resetsAt: 100 }, sevenDay: { utilization: 0.43, resetsAt: 200 } };
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          ndjson([
+            line({ t: "limits", ...limits }),
+            line({ t: "text", text: "x" }),
+            line({ t: "usage", inputTokens: 3700, outputTokens: 9 }),
+            line({ t: "done" }),
+          ]),
+        ),
+    );
+    const got = { usage: [] as unknown[], limits: [] as unknown[] };
+    await streamClaudeCode({
+      prompt: "p",
+      system: "s",
+      model: "",
+      signal: new AbortController().signal,
+      onText: () => {},
+      onUsage: (u) => got.usage.push(u),
+      onLimits: (l) => got.limits.push(l),
+    });
+    expect(got.usage).toEqual([{ inputTokens: 3700, outputTokens: 9 }]);
+    expect(got.limits).toEqual([limits]);
+  });
+
+  it("콜백을 안 넘겨도 usage / limits 이벤트가 오류를 만들지 않는다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(ndjson([line({ t: "limits" }), line({ t: "usage" }), line({ t: "done" })])),
+    );
+    await expect(run().p).resolves.toBeUndefined();
+  });
+
   it("error 이벤트는 ClaudeCodeError 로 던진다", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ndjson([line({ t: "error", message: "로그인 필요" })])));
     await expect(run().p).rejects.toThrow(new ClaudeCodeError("로그인 필요"));

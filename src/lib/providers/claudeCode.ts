@@ -30,5 +30,7 @@ export const claudeCodeProvider: Provider = {
       model: settings.ccModel,
       signal: req.signal,
       onText: req.onText,
+      onUsage: req.onUsage,
+      onLimits: req.onLimits,
     }),
 };

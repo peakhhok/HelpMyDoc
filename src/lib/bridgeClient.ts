@@ -1,3 +1,5 @@
+import type { TurnUsage, UsageLimits } from "./usage";
+
 /** 로컬 브리지(server/bridge.mjs)를 통해 내 PC의 Claude Code 를 호출한다. */
 export interface BridgeStatus {
   /** 로컬 브리지에 연결됨. 정적 호스팅(GitHub Pages 등)이면 false */
@@ -34,6 +36,10 @@ export async function streamClaudeCode(opts: {
   model: string;
   signal: AbortSignal;
   onText: (delta: string) => void;
+  /** 답변이 끝났을 때 이번 답변의 토큰 수 */
+  onUsage?: (usage: TurnUsage) => void;
+  /** 구독 한도 사용률 (5시간/7일) */
+  onLimits?: (limits: UsageLimits) => void;
 }): Promise<void> {
   const res = await fetch("/api/claude-code/chat", {
     method: "POST",
@@ -63,13 +69,24 @@ export async function streamClaudeCode(opts: {
       const line = buffer.slice(0, nl).trim();
       buffer = buffer.slice(nl + 1);
       if (!line) continue;
-      let evt: { t: string; text?: string; message?: string };
+      let evt: {
+        t: string;
+        text?: string;
+        message?: string;
+        inputTokens?: number;
+        outputTokens?: number;
+        fiveHour?: UsageLimits["fiveHour"];
+        sevenDay?: UsageLimits["sevenDay"];
+      };
       try {
         evt = JSON.parse(line);
       } catch {
         continue;
       }
       if (evt.t === "text" && evt.text) opts.onText(evt.text);
+      else if (evt.t === "usage")
+        opts.onUsage?.({ inputTokens: evt.inputTokens ?? 0, outputTokens: evt.outputTokens ?? 0 });
+      else if (evt.t === "limits") opts.onLimits?.({ fiveHour: evt.fiveHour, sevenDay: evt.sevenDay });
       else if (evt.t === "error") throw new ClaudeCodeError(evt.message ?? "Claude Code 오류");
     }
   }

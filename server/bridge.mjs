@@ -72,6 +72,16 @@ async function status() {
   return out;
 }
 
+const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+
+/** 한도 창 하나에서 사용률(0~1)과 초기화 시각(epoch 초)만 꺼낸다. 낯선 형식이면 undefined. */
+function pickWindow(w) {
+  if (!w || typeof w.utilization !== "number" || !Number.isFinite(w.utilization)) return undefined;
+  // 0~1 비율이 기본이지만, 퍼센트(0~100)로 오는 버전에 대비해 1보다 크면 100으로 나눈다.
+  const utilization = Math.min(1, Math.max(0, w.utilization > 1 ? w.utilization / 100 : w.utilization));
+  return { utilization, resetsAt: typeof w.resetsAt === "number" ? w.resetsAt : undefined };
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -186,8 +196,20 @@ async function chat(req, res) {
           .filter((b) => b.type === "text")
           .map((b) => b.text)
           .join("");
-      } else if (e.type === "result" && e.is_error) {
-        failure = String(e.result ?? "Claude Code 오류");
+      } else if (e.type === "rate_limit_event") {
+        // 구독 한도 사용률(5시간/7일). 사용률과 초기화 시각만 전달하고 그 밖의 필드(세션 ID 등)는 버린다.
+        const w = e.rate_limit_info?.unifiedWindows;
+        const fiveHour = pickWindow(w?.five_hour);
+        const sevenDay = pickWindow(w?.seven_day);
+        if (fiveHour || sevenDay) send({ t: "limits", fiveHour, sevenDay });
+      } else if (e.type === "result") {
+        if (e.is_error) failure = String(e.result ?? "Claude Code 오류");
+        const u = e.usage;
+        if (u && typeof u === "object") {
+          // 이번 답변의 토큰 수 (입력은 캐시된 분량 포함). 비용(total_cost_usd)은 정가 환산값이라 구독에서는 의미가 없어 보내지 않는다.
+          const inputTokens = num(u.input_tokens) + num(u.cache_creation_input_tokens) + num(u.cache_read_input_tokens);
+          send({ t: "usage", inputTokens, outputTokens: num(u.output_tokens) });
+        }
       }
     }
   });

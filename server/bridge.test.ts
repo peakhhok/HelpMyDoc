@@ -30,7 +30,13 @@ process.stdin.on("end", () => {
     emit({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: text.slice(5) } } });
   }
   emit({ type: "assistant", message: { content: [{ type: "text", text }] } });
-  emit({ type: "result", subtype: "success", is_error: false });
+  if (mode !== "nolimits") {
+    emit({ type: "rate_limit_event", session_id: "SECRET-SESSION", rate_limit_info: { status: "allowed", unifiedWindows: {
+      five_hour: { utilization: 0.47, resetsAt: 1794779400, status: "allowed" },
+      seven_day: { utilization: process.env.FAKE_PERCENT_SCALE ? 43 : 0.43, resetsAt: 1794769200 } } } });
+  }
+  emit({ type: "result", subtype: "success", is_error: false, total_cost_usd: 0.123, session_id: "SECRET-SESSION",
+    usage: { input_tokens: 2, cache_creation_input_tokens: 1337, cache_read_input_tokens: 2366, output_tokens: 9 } });
 });
 `;
 
@@ -163,6 +169,40 @@ describe.skipIf(process.platform === "win32")("claude code bridge", () => {
       } finally {
         process.env.PATH = saved;
       }
+    });
+  });
+
+  describe("사용량 정보", () => {
+    it("구독 한도 사용률과 답변 토큰 수를 전달하고, 그 밖의 필드는 버린다", async () => {
+      const r = await chat({ prompt: "abc" });
+      const ev = events(r.text) as Array<Record<string, unknown>>;
+      expect(ev.find((e) => e.t === "limits")).toEqual({
+        t: "limits",
+        fiveHour: { utilization: 0.47, resetsAt: 1794779400 },
+        sevenDay: { utilization: 0.43, resetsAt: 1794769200 },
+      });
+      expect(ev.find((e) => e.t === "usage")).toEqual({ t: "usage", inputTokens: 2 + 1337 + 2366, outputTokens: 9 });
+      // 세션 ID, 비용은 화면에 필요 없으므로 내보내지 않는다
+      expect(r.text).not.toContain("SECRET-SESSION");
+      expect(r.text).not.toContain("0.123");
+    });
+
+    it("사용률이 퍼센트(0~100)로 오는 버전도 0~1 로 맞춘다", async () => {
+      process.env.FAKE_PERCENT_SCALE = "1";
+      try {
+        const ev = events((await chat({ prompt: "abc" })).text) as Array<Record<string, unknown>>;
+        const limits = ev.find((e) => e.t === "limits") as { sevenDay: { utilization: number } };
+        expect(limits.sevenDay.utilization).toBeCloseTo(0.43);
+      } finally {
+        delete process.env.FAKE_PERCENT_SCALE;
+      }
+    });
+
+    it("한도 이벤트가 없으면 limits 를 보내지 않는다", async () => {
+      process.env.FAKE_MODE = "nolimits";
+      const ev = events((await chat({ prompt: "abc" })).text);
+      expect(ev.some((e) => e.t === "limits")).toBe(false);
+      expect(ev.some((e) => e.t === "usage")).toBe(true);
     });
   });
 

@@ -11,6 +11,7 @@ import type { UiMessage } from "./lib/history";
 import { openPdf } from "./lib/pdf";
 import { loadSettings, saveSettings, type Settings } from "./lib/settings";
 import { evaluateSetup } from "./lib/setup";
+import { dropExpired, loadLimits, mergeLimits, saveLimits, type UsageLimits } from "./lib/usage";
 
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 3;
@@ -29,6 +30,9 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [showSettings, setShowSettings] = useState(false);
   const [bridge, setBridge] = useState<BridgeStatus | null>(null);
+  /** 마지막으로 알려진 구독 한도 사용률 (이미 초기화된 창은 제외) */
+  const [limits, setLimits] = useState<UsageLimits | null>(() => loadLimits());
+  const limitsRef = useRef(limits);
   /** 시작 화면(연결 설정)을 사용자가 직접 열었음 */
   const [forceSetup, setForceSetup] = useState(false);
   /** 시작할 때 연결이 안 돼 있어 시작 화면을 띄운 뒤, 사용자가 닫을 때까지 유지 */
@@ -54,6 +58,25 @@ export default function App() {
 
   useEffect(() => {
     fetchBridgeStatus().then(setBridge);
+  }, []);
+
+  const onLimits = useCallback((next: UsageLimits) => {
+    const merged = mergeLimits(limitsRef.current, next);
+    limitsRef.current = merged;
+    setLimits(merged);
+    saveLimits(merged);
+  }, []);
+
+  // 한도가 초기화될 시각이 지나면 낡은 값을 화면에서 치운다.
+  useEffect(() => {
+    const t = setInterval(() => {
+      const alive = dropExpired(limitsRef.current, Date.now());
+      if (JSON.stringify(alive) !== JSON.stringify(limitsRef.current)) {
+        limitsRef.current = alive;
+        setLimits(alive);
+      }
+    }, 30_000);
+    return () => clearInterval(t);
   }, []);
 
   const claudeMode = settings.provider === "claude-code";
@@ -276,6 +299,8 @@ export default function App() {
           onOpenSettings={() => setShowSettings(true)}
           onOpenSetup={() => setForceSetup(true)}
           onRecheckBridge={() => refreshBridge(true)}
+          limits={limits}
+          onLimits={onLimits}
         />
       </main>
 

@@ -30,6 +30,43 @@ const run = (extra: Partial<Parameters<typeof streamClaude>[0]> = {}) => {
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe("streamClaude 토큰 사용량", () => {
+  const evt = (o: object) => `data: ${JSON.stringify(o)}\n\n`;
+
+  it("입력(캐시 포함)과 출력 토큰을 답변이 끝날 때 한 번 알려준다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        sseResponse([
+          evt({
+            type: "message_start",
+            message: {
+              usage: {
+                input_tokens: 10,
+                cache_creation_input_tokens: 100,
+                cache_read_input_tokens: 1000,
+                output_tokens: 1,
+              },
+            },
+          }),
+          delta("안녕"),
+          evt({ type: "message_delta", usage: { output_tokens: 42 } }),
+        ]),
+      ),
+    );
+    const usages: unknown[] = [];
+    await run({ onUsage: (u) => usages.push(u) }).p;
+    expect(usages).toEqual([{ inputTokens: 1110, outputTokens: 42 }]);
+  });
+
+  it("사용량 정보가 없는 응답이면 호출하지 않는다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([delta("x")])));
+    const usages: unknown[] = [];
+    await run({ onUsage: (u) => usages.push(u) }).p;
+    expect(usages).toEqual([]);
+  });
+});
+
 describe("streamClaude", () => {
   it("올바른 헤더와 본문으로 호출한다", async () => {
     const fetchMock = vi.fn().mockResolvedValue(sseResponse([delta("ok")]));

@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { ClaudeError } from "../lib/anthropicApi";
+import { LimitsBadge } from "./LimitsBadge";
 import { ClaudeCodeError, type BridgeStatus } from "../lib/bridgeClient";
 import { buildPrompt } from "../lib/context";
 import { updateDoc } from "../lib/docStore";
@@ -11,6 +12,7 @@ import { getPageText } from "../lib/pdf";
 import { getProvider } from "../lib/providers";
 import { evaluateSetup } from "../lib/setup";
 import type { Settings } from "../lib/settings";
+import { formatTokens, type UsageLimits } from "../lib/usage";
 
 interface Props {
   doc: PDFDocumentProxy | null;
@@ -31,6 +33,9 @@ interface Props {
   onOpenSetup: () => void;
   /** Claude Code 상태를 조용히 다시 확인 (오류가 났을 때 로그인 풀림 등을 알아채기 위해) */
   onRecheckBridge: () => void;
+  /** 구독 한도 사용률 (Claude Code 방식에서 답변마다 갱신) */
+  limits: UsageLimits | null;
+  onLimits: (limits: UsageLimits) => void;
 }
 
 const QUICK_PROMPTS = ["여기서 중요한 부분을 요약해줘", "이 페이지를 쉽게 설명해줘", "핵심 개념을 정리해줘"];
@@ -49,6 +54,8 @@ export function ChatPanel({
   onOpenSettings,
   onOpenSetup,
   onRecheckBridge,
+  limits,
+  onLimits,
 }: Props) {
   const [messages, setMessages] = useState<UiMessage[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -114,6 +121,15 @@ export function ChatPanel({
         history: trimHistory(history.map(({ role, content }) => ({ role, content }))),
         prompt: ctx.prompt,
         signal: ac.signal,
+        onLimits,
+        // 답변이 끝나면 이번 답변에 쓰인 토큰 수를 마지막 답변 메시지에 붙인다.
+        onUsage: (usage) =>
+          setMessages((cur) => {
+            const next = cur.slice();
+            const last = next[next.length - 1];
+            if (last?.role === "assistant") next[next.length - 1] = { ...last, usage };
+            return next;
+          }),
         onText: (delta) =>
           setMessages((cur) => {
             const next = cur.slice();
@@ -149,6 +165,7 @@ export function ChatPanel({
       <div className="chat-head">
         <strong>Claude</strong>
         <span className="muted">{provider.describe(settings)}</span>
+        {provider.id === "claude-code" && <LimitsBadge limits={limits} />}
         <span className="spacer" />
         {persist && (
           <span className="muted small-text" title="이 문서의 대화와 마지막으로 본 페이지가 이 PC에 저장됩니다">
@@ -228,6 +245,14 @@ export function ChatPanel({
               )
             ) : (
               <div className="plain">{m.content}</div>
+            )}
+            {m.role === "assistant" && m.usage && (
+              <div
+                className="usage-note"
+                title="이번 답변에 쓰인 토큰입니다. 입력에는 현재 페이지 문서, 이전 대화, 캐시된 분량이 포함됩니다."
+              >
+                입력 {formatTokens(m.usage.inputTokens)} · 출력 {formatTokens(m.usage.outputTokens)} 토큰
+              </div>
             )}
           </div>
         ))}

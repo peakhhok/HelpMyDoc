@@ -17,5 +17,6 @@ export const apiProvider: Provider = {
       messages: [...req.history, { role: "user", content: req.prompt }],
       signal: req.signal,
       onText: req.onText,
+      onUsage: req.onUsage,
     }),
 };

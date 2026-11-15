@@ -1,8 +1,11 @@
 import type { ChatMessage } from "./anthropicApi";
+import type { TurnUsage } from "./usage";
 
 /** 화면에 보이는 메시지. 질문에는 AI 에게 실제로 보여준 문서 범위(ref)가 붙는다. */
 export interface UiMessage extends ChatMessage {
   ref?: { from: number; to: number; selection: boolean; emptyPages: number[] };
+  /** 답변(assistant)에 쓰인 토큰 수 */
+  usage?: TurnUsage;
 }
 
 /** AI 에게 보내는 이전 대화의 한도. 화면과 저장소에는 전체가 남는다. */

@@ -1,3 +1,5 @@
+import type { TurnUsage } from "./usage";
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
@@ -20,12 +22,14 @@ export interface StreamOptions {
   messages: ChatMessage[];
   signal: AbortSignal;
   onText: (delta: string) => void;
+  /** 답변이 끝났을 때 토큰 사용량 */
+  onUsage?: (usage: TurnUsage) => void;
 }
 
 export class ClaudeError extends Error {}
 
 /** Anthropic Messages API 를 브라우저에서 직접 호출하고 SSE 스트림을 읽는다. */
-export async function streamClaude({ apiKey, model, messages, signal, onText }: StreamOptions): Promise<void> {
+export async function streamClaude({ apiKey, model, messages, signal, onText, onUsage }: StreamOptions): Promise<void> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     signal,
@@ -61,6 +65,9 @@ export async function streamClaude({ apiKey, model, messages, signal, onText }: 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let sawUsage = false;
 
   for (;;) {
     const { value, done } = await reader.read();
@@ -83,9 +90,19 @@ export async function streamClaude({ apiKey, model, messages, signal, onText }: 
       }
       if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
         onText(evt.delta.text as string);
+      } else if (evt.type === "message_start" && evt.message?.usage) {
+        const u = evt.message.usage;
+        inputTokens = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+        outputTokens = u.output_tokens ?? 0;
+        sawUsage = true;
+      } else if (evt.type === "message_delta" && typeof evt.usage?.output_tokens === "number") {
+        outputTokens = evt.usage.output_tokens; // 누적 값
+        sawUsage = true;
       } else if (evt.type === "error") {
         throw new ClaudeError(evt.error?.message ?? "스트리밍 중 오류가 발생했습니다.");
       }
     }
   }
+
+  if (sawUsage) onUsage?.({ inputTokens, outputTokens });
 }
