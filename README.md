@@ -40,9 +40,9 @@ npm run desktop:dist   # 설치 파일 생성 → release/
 
 설치한 앱은 시작하고 잠시 뒤, 그리고 6시간마다 이 저장소의 **GitHub Releases**에서 새 버전을 확인합니다. 새 버전이 있으면 백그라운드로 받고, 받기가 끝나면 화면 위에 **"새 버전(v0.2.0)이 준비됐어요 [다시 시작해서 업데이트]"**가 나옵니다. 누르지 않아도 앱을 종료할 때 자동으로 설치됩니다. 대화 기록과 설정은 그대로 유지됩니다.
 
-- 윈도우(설치형)와 AppImage로 실행한 리눅스에서 동작합니다. **맥은 코드 서명이 있어야 자동 업데이트가 되어 지원하지 않습니다.** 포터블 exe는 직접 새 파일을 받아야 합니다.
+- **지금은 윈도우(설치형)만 배포합니다.** 포터블 exe는 자동 업데이트가 안 되어 직접 새 파일을 받아야 합니다. (맥·리눅스 빌드는 만들지 않습니다)
 - 끄려면 환경변수 `HELPMYDOC_NO_UPDATE=1`로 앱을 실행하세요. 개발 실행(`npm run desktop`)에서는 항상 꺼져 있습니다.
-- **새 버전 내기(관리자)**: `package.json`의 `version`을 올리고 커밋한 뒤 태그를 푸시하면 GitHub Actions가 3개 OS 설치 파일과 업데이트 정보(`latest*.yml`)를 만들어 Release에 올립니다.
+- **새 버전 내기(관리자)**: `package.json`의 `version`을 올리고 커밋한 뒤 태그를 푸시하면 GitHub Actions가 윈도우 설치 파일과 업데이트 정보(`latest.yml`)를 만들어 Release에 올립니다.
   ```bash
   git tag v0.1.1 && git push origin v0.1.1
   ```
@@ -57,12 +57,12 @@ npm run desktop:dist   # 설치 파일 생성 → release/
 | `HelpMyDoc-Setup-<버전>.exe`    | 설치형. 더블클릭하면 설치되고 바탕화면·시작 메뉴에 바로가기가 생깁니다 |
 | `HelpMyDoc-<버전>-portable.exe` | 설치 없이 바로 실행되는 단일 파일 (첫 실행은 조금 느릴 수 있음)        |
 
-맥(`.dmg`)과 리눅스(`.AppImage`)는 각 OS에서 같은 명령으로 만듭니다. exe는 윈도우에서 빌드하는 것을 기본으로 합니다.
+맥·리눅스용 설치 파일은 현재 배포하지 않습니다. (코드는 동작하지만 CI에서 만들거나 검증하지 않습니다)
 
 - `EPERM`/`Cannot create symbolic link` 오류가 나면 Windows 설정에서 **개발자 모드**를 켜거나 PowerShell을 **관리자 권한**으로 열어 다시 실행하세요.
 - 빌드는 처음에 필요한 도구를 내려받느라 몇 분 걸립니다.
-- 태그(`v*`)를 푸시하면 GitHub Actions(`.github/workflows/desktop.yml`)가 맥·윈도우·리눅스 설치 파일을 만들어 Release에 올립니다.
-- **서명되지 않은 빌드**라서 처음 실행할 때 OS 경고가 뜹니다. (맥: 앱을 우클릭 → 열기 / 윈도우: SmartScreen "추가 정보 → 실행")
+- 태그(`v*`)를 푸시하면 GitHub Actions(`.github/workflows/desktop.yml`)가 윈도우 설치 파일을 만들어 Release에 올립니다. 수동 실행(Run workflow)은 Release 없이 산출물(Artifacts)만 만듭니다.
+- **서명되지 않은 빌드**라서 처음 실행할 때 윈도우 SmartScreen 경고가 뜹니다. ("추가 정보 → 실행")
 - **Claude Code는 앱에 포함되지 않습니다.** "내 PC의 Claude Code"를 쓰려면 Claude Code를 직접 설치하고 로그인해 두세요. 맥/리눅스에서는 앱이 로그인 셸의 PATH를 읽어 `claude`를 찾습니다. 윈도우는 네이티브 설치본(`claude.exe`)이 필요합니다. (`claude.cmd` 래퍼는 셸 없이 안전하게 실행할 수 없어 지원하지 않습니다.)
 - 설정(API 키 포함)은 앱 데이터 폴더에 저장됩니다. 앱은 항상 같은 로컬 포트(47821)를 쓰므로 재실행해도 설정이 유지됩니다. 포트가 사용 중이면 임의 포트를 쓰고 이때는 설정이 유지되지 않을 수 있습니다.
 
