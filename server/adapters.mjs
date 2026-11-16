@@ -13,6 +13,12 @@
 //  newState() / handle(obj, state) → 화면으로 보낼 이벤트 배열 / finish(state, { code, stderr }) → 마지막 이벤트 배열
 import { resolveCli } from "./claude-path.mjs";
 
+/** 터미널 색상 등 ANSI 제어 문자를 지운다. */
+export function stripAnsi(s) {
+  // eslint-disable-next-line no-control-regex
+  return String(s).replace(/\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007]*\u0007/g, "");
+}
+
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
 /** 한도 창 하나에서 사용률(0~1)과 초기화 시각(epoch 초)만 꺼낸다. 낯선 형식이면 undefined. */
@@ -29,6 +35,9 @@ export const claudeAdapter = {
   id: "claude-code",
   label: "Claude Code",
   command: "claude",
+  // "로그인 시도하기" 버튼이 실행하는 고정 명령. 사용자 입력은 인자에 들어가지 않는다.
+  // (브라우저에서 로그인하면 Claude Code 가 직접 마무리하므로 앱은 입력도 토큰도 다루지 않는다)
+  loginArgs: ["auth", "login"],
 
   async status({ run, cli }) {
     // platform: 화면에서 OS 에 맞는 설치 안내를 보여주기 위함

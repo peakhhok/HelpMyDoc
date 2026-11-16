@@ -10,15 +10,18 @@ import { spawn, execFile } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { adapters, resolveAdapterCommand } from "./adapters.mjs";
+import { adapters, resolveAdapterCommand, stripAnsi } from "./adapters.mjs";
 
 const MAX_BODY = 4 * 1024 * 1024;
 const MAX_CONCURRENT = 2;
 const TIMEOUT_MS = 5 * 60 * 1000;
+const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 const MODEL_RE = /^[a-z0-9][a-z0-9.\-\[\]]{0,63}$/i;
 const ROUTE_RE = /^\/api\/([a-z-]+)\/([a-z]+)(?:\?.*)?$/;
 
 let running = 0;
+/** 로그인 흐름은 한 번에 하나만 */
+let loginRunning = false;
 
 function json(res, status, body) {
   res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
@@ -185,6 +188,81 @@ async function chat(adapter, req, res) {
   child.stdin.end(adapter.buildStdin({ prompt, system: typeof system === "string" ? system : "" }));
 }
 
+/** 실패했을 때 보여줄 마지막 출력 한 줄. 링크(일회용 인증 주소)는 가린다. */
+function tailOf(text) {
+  const lines = stripAnsi(text)
+    .replace(/https?:\/\/\S+/g, "[링크]")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  return (lines.at(-1) ?? "").slice(-200);
+}
+
+/**
+ * "로그인 시도하기": 공식 CLI 의 로그인 명령(고정 인자) 하나만 실행한다.
+ *  - 셸을 거치지 않고, 요청에서 받은 값은 명령에 전혀 쓰지 않는다.
+ *  - 표준입력은 막는다. (인증 코드를 앱이 대신 전달하지 않는다. 브라우저 로그인은 CLI 가 직접 마무리한다)
+ *  - 연결이 끊기면(취소, 화면 닫기) 프로세스를 종료한다.
+ * 화면에는 {t:"started"}, {t:"opened"}(브라우저를 열었다고 알림), {t:"exit", code, tail} 만 보낸다.
+ */
+function login(adapter, res) {
+  if (!adapter.loginArgs) return json(res, 404, { error: "not found" });
+  if (loginRunning) return json(res, 409, { error: "이미 로그인이 진행 중입니다." });
+
+  const cwd = workdirFor(adapter);
+  const cli = resolveAdapterCommand(adapter);
+  loginRunning = true;
+  res.writeHead(200, {
+    "content-type": "application/x-ndjson; charset=utf-8",
+    "cache-control": "no-store",
+    "x-accel-buffering": "no",
+  });
+  const send = (o) => res.writable && res.write(JSON.stringify(o) + "\n");
+  send({ t: "started" });
+
+  const child = spawn(cli.command, [...cli.prefixArgs, ...adapter.loginArgs], {
+    cwd,
+    env: { ...process.env, ...cli.env },
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  const timer = setTimeout(() => child.kill("SIGTERM"), LOGIN_TIMEOUT_MS);
+  let out = "";
+  let opened = false;
+  let done = false;
+
+  const finish = () => {
+    if (done) return false;
+    done = true;
+    clearTimeout(timer);
+    loginRunning = false;
+    return true;
+  };
+  const onData = (d) => {
+    out = (out + d).slice(-4000);
+    if (!opened && /opening browser/i.test(out)) {
+      opened = true;
+      send({ t: "opened" });
+    }
+  };
+  child.stdout.on("data", onData);
+  child.stderr.on("data", onData);
+
+  child.on("error", (e) => {
+    if (!finish()) return;
+    send({ t: "error", message: e.code === "ENOENT" ? adapter.notFoundMessage : e.message });
+    res.end();
+  });
+  child.on("close", (code) => {
+    if (!finish()) return;
+    send({ t: "exit", code: code ?? -1, tail: code === 0 ? "" : tailOf(out) });
+    res.end();
+  });
+  res.on("close", () => {
+    if (!res.writableEnded) child.kill("SIGTERM");
+  });
+}
+
 /** connect 스타일 미들웨어. 브리지 경로(/api/<cli>/…)가 아니면 next() 로 넘긴다. */
 export function claudeCodeBridge(req, res, next) {
   const m = ROUTE_RE.exec(req.url ?? "");
@@ -198,6 +276,8 @@ export function claudeCodeBridge(req, res, next) {
       (s) => json(res, 200, s),
       (e) => json(res, 500, { error: String(e) }),
     );
+  } else if (route === "login" && req.method === "POST") {
+    login(adapter, res);
   } else if (route === "chat" && req.method === "POST") {
     chat(adapter, req, res).catch((e) => {
       if (!res.headersSent) json(res, 500, { error: String(e?.message ?? e) });

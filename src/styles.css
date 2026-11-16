@@ -716,3 +716,22 @@ a {
 .usage-note.notice {
   color: #b45309;
 }
+
+.login-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.login-box p {
+  margin: 0;
+}
+.login-running {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--user-bg);
+}

@@ -11,7 +11,20 @@ const FAKE_CLAUDE = `#!/usr/bin/env node
 const fs = require("fs");
 const a = process.argv.slice(2);
 if (a[0] === "--version") { console.log("9.9.9 (Claude Code)"); process.exit(0); }
-if (a[0] === "auth") {
+if (a[0] === "auth" && a[1] === "login") {
+  const fs = require("fs");
+  if (process.env.FAKE_LOGIN_ARGS_FILE) {
+    // 표준입력이 파이프로 열려 있는지(= 앱이 입력을 넘길 수 있는지)도 기록한다
+    fs.writeFileSync(process.env.FAKE_LOGIN_ARGS_FILE, JSON.stringify({ args: a, stdinIsPipe: fs.fstatSync(0).isFIFO() }));
+  }
+  if (process.env.FAKE_PID_FILE) fs.writeFileSync(process.env.FAKE_PID_FILE, String(process.pid));
+  console.log("Opening browser to sign in...");
+  console.log("If the browser did not open, visit: https://claude.example/oauth/authorize?state=SECRET-STATE");
+  const mode = process.env.FAKE_LOGIN_MODE;
+  if (mode === "hang") setInterval(() => {}, 1000);
+  else if (mode === "fail") { console.error("Login failed: access denied (https://claude.example/err?state=SECRET-STATE)"); process.exit(1); }
+  else setTimeout(() => process.exit(0), 150);
+} else if (a[0] === "auth") {
   console.log(JSON.stringify({ loggedIn: process.env.FAKE_LOGGED_IN !== "0", authMethod: "oauth_token", email: "secret@example.com" }));
   process.exit(0);
 }
@@ -115,6 +128,14 @@ const codexChat = (body: object, headers: Record<string, string> = {}) =>
     body: JSON.stringify(body),
   });
 
+const loginReq = (body: object = {}, headers: Record<string, string> = {}) =>
+  request({
+    method: "POST",
+    path: "/api/claude-code/login",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+
 const events = (text: string) =>
   text
     .split("\n")
@@ -166,7 +187,8 @@ describe.skipIf(process.platform === "win32")("claude code bridge", () => {
     delete process.env.FAKE_LOGGED_IN;
     delete process.env.FAKE_ARGS_FILE;
     delete process.env.FAKE_PID_FILE;
-    for (const k of Object.keys(process.env)) if (k.startsWith("FAKE_CODEX_")) delete process.env[k];
+    for (const k of Object.keys(process.env))
+      if (k.startsWith("FAKE_CODEX_") || k.startsWith("FAKE_LOGIN_")) delete process.env[k];
   });
 
   describe("라우팅", () => {
@@ -256,6 +278,99 @@ describe.skipIf(process.platform === "win32")("claude code bridge", () => {
       } finally {
         delete process.env.ANTHROPIC_API_KEY;
       }
+    });
+  });
+
+  describe("로그인 시도하기 (고정 명령 하나만 실행)", () => {
+    it("`claude auth login` 만 실행하고, 브라우저를 열었다는 사실과 종료 코드만 알려준다", async () => {
+      const argsFile = join(dir, "login-args.json");
+      process.env.FAKE_LOGIN_ARGS_FILE = argsFile;
+      const r = await loginReq();
+      expect(r.status).toBe(200);
+      const ev = events(r.text) as Array<Record<string, unknown>>;
+      expect(ev.map((e) => e.t)).toEqual(["started", "opened", "exit"]);
+      expect(ev.at(-1)).toEqual({ t: "exit", code: 0, tail: "" });
+      const rec = JSON.parse(readFileSync(argsFile, "utf8"));
+      expect(rec.args).toEqual(["auth", "login"]); // 인자는 이것뿐
+      expect(rec.stdinIsPipe).toBe(false); // 표준입력은 막혀 있다 (인증 코드를 앱이 대신 전달하지 않음)
+      expect(r.text).not.toContain("SECRET-STATE"); // 일회용 인증 주소는 화면으로 보내지 않는다
+    });
+
+    it("요청에 무엇을 실어 보내도 명령에는 반영되지 않는다", async () => {
+      const argsFile = join(dir, "login-args2.json");
+      process.env.FAKE_LOGIN_ARGS_FILE = argsFile;
+      await loginReq({ args: ["--evil"], command: "rm -rf /", model: "x", prompt: "y" });
+      expect(JSON.parse(readFileSync(argsFile, "utf8")).args).toEqual(["auth", "login"]);
+    });
+
+    it("실패하면 종료 코드와 마지막 출력을 알려주되 링크는 가린다", async () => {
+      process.env.FAKE_LOGIN_MODE = "fail";
+      const r = await loginReq();
+      const exit = (events(r.text) as Array<Record<string, unknown>>).find((e) => e.t === "exit") as {
+        code: number;
+        tail: string;
+      };
+      expect(exit.code).toBe(1);
+      expect(exit.tail).toContain("access denied");
+      expect(exit.tail).toContain("[링크]");
+      expect(exit.tail).not.toContain("Opening browser"); // 마지막 한 줄만
+      expect(r.text).not.toContain("SECRET-STATE");
+      expect(r.text).not.toContain("claude.example");
+    });
+
+    it("연결을 끊으면(취소) 로그인 프로세스를 종료하고, 진행 중에는 두 번째를 받지 않는다 (409)", async () => {
+      const pidFile = join(dir, "login-pid");
+      process.env.FAKE_LOGIN_MODE = "hang";
+      process.env.FAKE_PID_FILE = pidFile;
+      const first = http.request({
+        host: "127.0.0.1",
+        port,
+        method: "POST",
+        path: "/api/claude-code/login",
+        headers: { "content-type": "application/json" },
+      });
+      first.on("error", () => {});
+      const started = new Promise<void>((resolve) =>
+        first.on("response", (res) => {
+          res.once("data", () => resolve());
+        }),
+      );
+      first.end("{}");
+      await started;
+      await waitFor(() => existsSync(pidFile));
+      const pid = Number(readFileSync(pidFile, "utf8"));
+      expect(alive(pid)).toBe(true);
+
+      expect((await loginReq()).status).toBe(409);
+
+      first.destroy(); // 화면에서 취소
+      await waitFor(() => !alive(pid));
+      expect(alive(pid)).toBe(false);
+
+      // 정리된 뒤에는 다시 시작할 수 있다
+      process.env.FAKE_LOGIN_MODE = "";
+      let status = 0;
+      for (let i = 0; i < 40 && status !== 200; i++) {
+        status = (await loginReq()).status;
+        if (status !== 200) await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(status).toBe(200);
+    });
+
+    it("Origin/Host 검사가 똑같이 적용되고, 로그인 명령이 없는 CLI(codex)와 GET 은 거절한다", async () => {
+      expect((await loginReq({}, { origin: "https://evil.example" })).status).toBe(403);
+      expect((await loginReq({}, { "sec-fetch-site": "cross-site" })).status).toBe(403);
+      expect(
+        (
+          await request({
+            method: "POST",
+            path: "/api/codex/login",
+            headers: { "content-type": "application/json" },
+            body: "{}",
+          })
+        ).status,
+      ).toBe(404);
+      expect((await request({ path: "/api/claude-code/login" })).status).toBe(404);
     });
   });
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ClaudeCodeError, fetchBridgeStatus, streamClaudeCode, streamCli } from "./bridgeClient";
+import { ClaudeCodeError, fetchBridgeStatus, startClaudeLogin, streamClaudeCode, streamCli } from "./bridgeClient";
 
 const ndjson = (chunks: string[], init: ResponseInit = { status: 200 }) => {
   const enc = new TextEncoder();
@@ -175,5 +175,57 @@ describe("여러 CLI 지원", () => {
       onNotice: (t) => notices.push(t),
     });
     expect(notices).toEqual(["도구를 1번 사용하려 했습니다"]);
+  });
+});
+
+describe("startClaudeLogin (로그인 시도하기)", () => {
+  const login = (onOpened?: () => void, signal = new AbortController().signal) =>
+    startClaudeLogin({ signal, onOpened });
+
+  it("고정된 경로로 요청하고, 브라우저가 열리면 알리고, 종료 코드를 돌려준다", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        ndjson([line({ t: "started" }), line({ t: "opened" }), line({ t: "exit", code: 0, tail: "" })]),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    let opened = 0;
+    expect(await login(() => opened++)).toEqual({ code: 0, tail: "" });
+    expect(opened).toBe(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/claude-code/login");
+    expect(fetchMock.mock.calls[0][1].method).toBe("POST");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({}); // 보내는 값은 없다
+  });
+
+  it("실패 종료는 코드와 마지막 출력을 돌려준다 (청크가 줄 중간에서 끊겨도 해석)", async () => {
+    const all = line({ t: "started" }) + line({ t: "exit", code: 1, tail: "access denied" });
+    const cut = all.indexOf("denied");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ndjson([all.slice(0, cut), all.slice(cut)])));
+    expect(await login()).toEqual({ code: 1, tail: "access denied" });
+  });
+
+  it("종료 이벤트 없이 연결이 끊기면 code -1", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ndjson([line({ t: "started" })])));
+    expect(await login()).toEqual({ code: -1, tail: "" });
+  });
+
+  it("error 이벤트와 HTTP 오류(진행 중 409 등)는 ClaudeCodeError", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ndjson([line({ t: "error", message: "claude 없음" })])));
+    await expect(login()).rejects.toThrow(new ClaudeCodeError("claude 없음"));
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify({ error: "이미 로그인이 진행 중입니다." }), { status: 409 })),
+    );
+    await expect(login()).rejects.toThrow("이미 로그인이 진행 중입니다.");
+  });
+
+  it("취소(abort)는 fetch 에 전달된다", async () => {
+    const ac = new AbortController();
+    const fetchMock = vi.fn().mockResolvedValue(ndjson([line({ t: "exit", code: 0 })]));
+    vi.stubGlobal("fetch", fetchMock);
+    await login(undefined, ac.signal);
+    expect(fetchMock.mock.calls[0][1].signal).toBe(ac.signal);
   });
 });

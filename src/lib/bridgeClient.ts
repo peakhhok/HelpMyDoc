@@ -77,7 +77,19 @@ export async function streamCli(id: CliId, opts: StreamCliOptions): Promise<void
     throw new ClaudeCodeError(msg);
   }
 
-  const reader = res.body.getReader();
+  for await (const evt of ndjson<CliEvent>(res.body)) {
+    if (evt.t === "text" && evt.text) opts.onText(evt.text);
+    else if (evt.t === "usage")
+      opts.onUsage?.({ inputTokens: evt.inputTokens ?? 0, outputTokens: evt.outputTokens ?? 0 });
+    else if (evt.t === "limits") opts.onLimits?.({ fiveHour: evt.fiveHour, sevenDay: evt.sevenDay });
+    else if (evt.t === "notice" && evt.text) opts.onNotice?.(evt.text);
+    else if (evt.t === "error") throw new ClaudeCodeError(evt.message ?? "연결 오류");
+  }
+}
+
+/** 줄 단위 JSON(NDJSON) 응답을 이벤트로 읽는다. 청크가 줄 중간에서 끊겨도 이어 붙이고, 깨진 줄은 건너뛴다. */
+async function* ndjson<T>(body: ReadableStream<Uint8Array>): AsyncGenerator<T> {
+  const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   for (;;) {
@@ -89,20 +101,49 @@ export async function streamCli(id: CliId, opts: StreamCliOptions): Promise<void
       const line = buffer.slice(0, nl).trim();
       buffer = buffer.slice(nl + 1);
       if (!line) continue;
-      let evt: CliEvent;
       try {
-        evt = JSON.parse(line);
+        yield JSON.parse(line) as T;
       } catch {
-        continue;
+        /* 깨진 줄은 건너뛴다 */
       }
-      if (evt.t === "text" && evt.text) opts.onText(evt.text);
-      else if (evt.t === "usage")
-        opts.onUsage?.({ inputTokens: evt.inputTokens ?? 0, outputTokens: evt.outputTokens ?? 0 });
-      else if (evt.t === "limits") opts.onLimits?.({ fiveHour: evt.fiveHour, sevenDay: evt.sevenDay });
-      else if (evt.t === "notice" && evt.text) opts.onNotice?.(evt.text);
-      else if (evt.t === "error") throw new ClaudeCodeError(evt.message ?? "연결 오류");
     }
   }
+}
+
+export interface LoginResult {
+  /** 0 이면 로그인 완료 */
+  code: number;
+  /** 실패했을 때 마지막 출력 (링크는 가려져 있다) */
+  tail: string;
+}
+
+/**
+ * "로그인 시도하기": 브리지가 내 PC의 `claude auth login` 을 실행한다. (고정된 명령 하나뿐)
+ * 브라우저에서 로그인하면 Claude Code 가 직접 마무리하고, 이 함수는 끝날 때까지 기다린다.
+ * signal 을 중단하면 로그인 프로세스도 종료된다.
+ */
+export async function startClaudeLogin(opts: { signal: AbortSignal; onOpened?: () => void }): Promise<LoginResult> {
+  const res = await fetch("/api/claude-code/login", {
+    method: "POST",
+    signal: opts.signal,
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  if (!res.ok || !res.body) {
+    let msg = `브리지 요청 실패 (${res.status})`;
+    try {
+      msg = (await res.json()).error ?? msg;
+    } catch {
+      /* ignore */
+    }
+    throw new ClaudeCodeError(msg);
+  }
+  for await (const evt of ndjson<{ t: string; code?: number; tail?: string; message?: string }>(res.body)) {
+    if (evt.t === "opened") opts.onOpened?.();
+    else if (evt.t === "error") throw new ClaudeCodeError(evt.message ?? "로그인 오류");
+    else if (evt.t === "exit") return { code: evt.code ?? -1, tail: evt.tail ?? "" };
+  }
+  return { code: -1, tail: "" }; // 종료 이벤트 없이 연결이 끝남
 }
 
 /** 이전 이름 호환: Claude Code */

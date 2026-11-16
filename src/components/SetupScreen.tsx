@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CommandBox } from "./CommandBox";
-import type { BridgeStatus } from "../lib/bridgeClient";
+import { startClaudeLogin, type BridgeStatus } from "../lib/bridgeClient";
 import {
   LOGIN_COMMAND,
   SETUP_DOC_URL,
@@ -48,6 +48,70 @@ function Row({
         {detail && <span className="muted small-text">{detail}</span>}
       </div>
       {children && <div className="step-body">{children}</div>}
+    </div>
+  );
+}
+
+type LoginState =
+  { kind: "idle" } | { kind: "running"; opened: boolean } | { kind: "done" } | { kind: "failed"; message: string };
+
+/**
+ * 앱이 내 PC의 `claude auth login` 을 대신 실행한다. 브라우저에서 로그인하면 Claude Code 가 직접 마무리하고
+ * 앱은 입력도 로그인 정보도 다루지 않는다. 화면을 벗어나면 진행 중인 로그인은 취소된다.
+ */
+function LoginButton({ onFinished }: { onFinished: () => void }) {
+  const [state, setState] = useState<LoginState>({ kind: "idle" });
+  const abort = useRef<AbortController | null>(null);
+  useEffect(() => () => abort.current?.abort(), []);
+
+  const start = async () => {
+    const ac = new AbortController();
+    abort.current = ac;
+    setState({ kind: "running", opened: false });
+    try {
+      const r = await startClaudeLogin({
+        signal: ac.signal,
+        onOpened: () => setState({ kind: "running", opened: true }),
+      });
+      if (r.code === 0) {
+        setState({ kind: "done" });
+        onFinished(); // 바로 다시 확인 (주기적 확인도 계속 돌고 있다)
+      } else {
+        setState({
+          kind: "failed",
+          message: `로그인이 끝나지 않았어요 (종료 코드 ${r.code}).${r.tail ? ` ${r.tail}` : ""}`,
+        });
+      }
+    } catch (e) {
+      if ((e as Error).name === "AbortError") setState({ kind: "idle" });
+      else setState({ kind: "failed", message: (e as Error).message });
+    }
+  };
+
+  return (
+    <div className="login-box">
+      {state.kind === "running" ? (
+        <div className="login-running">
+          <span>
+            {state.opened
+              ? "브라우저에서 로그인해 주세요. 마치면 이 화면이 자동으로 이어집니다."
+              : "로그인 창을 여는 중…"}
+          </span>
+          <button type="button" className="ghost small" onClick={() => abort.current?.abort()}>
+            취소
+          </button>
+        </div>
+      ) : state.kind === "done" ? (
+        <p>✔ 로그인이 끝났어요. 확인하는 중…</p>
+      ) : (
+        <button type="button" className="primary" onClick={start}>
+          로그인 시도하기
+        </button>
+      )}
+      {state.kind === "failed" && <p className="error">{state.message}</p>}
+      <p className="small-text muted">
+        브라우저가 열리지 않거나 코드를 붙여 넣으라는 화면이 나오면, 아래 명령을 터미널에서 직접 실행하세요.
+      </p>
     </div>
   );
 }
@@ -173,11 +237,12 @@ export function SetupScreen({ mode, settings, bridge, onRefresh, onComplete, onS
                 {setup.step === "login" && (
                   <>
                     <p>
-                      설치는 되어 있지만 로그인이 필요해요. 터미널에서 아래 명령을 실행하고, 열리는 브라우저에서{" "}
+                      설치는 되어 있지만 로그인이 필요해요. 아래 <b>로그인 시도하기</b>를 누르면 브라우저가 열려요.{" "}
                       <b>구독(Pro/Max) 계정</b>으로 로그인하세요. 로그인은 Claude Code가 직접 처리하며, HelpMyDoc은
                       로그인 정보를 보지 않습니다.
                     </p>
-                    <CommandBox label="터미널에서 실행" command={LOGIN_COMMAND} />
+                    <LoginButton onFinished={() => onRefresh(true)} />
+                    <CommandBox label="터미널에서 직접 실행 (대신 쓸 수 있어요)" command={LOGIN_COMMAND} />
                   </>
                 )}
                 {setup.step === "ready" && setup.warnings.length > 0 && (
