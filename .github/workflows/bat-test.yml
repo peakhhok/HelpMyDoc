@@ -1,0 +1,29 @@
+name: build-exe.bat test (Windows)
+
+# 사용자가 더블클릭하는 build-exe.bat 이 실제 윈도우에서 끝까지 동작해 exe 를 만드는지 확인한다. (수동 실행)
+on:
+  workflow_dispatch:
+
+jobs:
+  bat:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Run build-exe.bat
+        shell: cmd
+        run: build-exe.bat
+      - name: Check the produced files
+        shell: pwsh
+        run: |
+          Get-ChildItem release | Format-Table Name, Length
+          foreach ($f in @("release\win-unpacked\HelpMyDoc.exe")) {
+            if (-not (Test-Path $f)) { throw "만들어지지 않음: $f" }
+          }
+          if (-not (Get-ChildItem release -Filter "HelpMyDoc-Setup-*.exe")) { throw "설치 파일이 없습니다" }
+          if (-not (Get-ChildItem release -Filter "*portable.exe")) { throw "포터블 exe 가 없습니다" }
+      - name: Smoke test the exe made by the script
+        run: node scripts/smoke-desktop.cjs release/win-unpacked/HelpMyDoc.exe

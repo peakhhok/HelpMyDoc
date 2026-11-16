@@ -1,0 +1,2 @@
+# 윈도우 배치 파일은 CRLF 줄바꿈이어야 한다
+*.bat text eol=crlf
