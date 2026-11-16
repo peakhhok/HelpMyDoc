@@ -48,6 +48,25 @@ describe("settings", () => {
     expect(loadSettings().ccModel).toBe("sonnet"); // 모델을 고른 적 없는 사용자
   });
 
+  it("여러 AI 연결 설정의 기본값: Codex 는 꺼짐, 키와 모델은 비어 있음", () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({
+      enableCodex: false,
+      codexModel: "",
+      openaiKey: "",
+      openaiModel: "",
+      geminiKey: "",
+      geminiModel: "",
+    });
+  });
+
+  it("예전 설정(새 필드 없음)을 불러와도 새 필드는 기본값으로 채워진다", () => {
+    vi.stubGlobal(
+      "localStorage",
+      fakeStorage({ "helpmydoc.settings.v1": JSON.stringify({ apiKey: "k", provider: "api" }) }),
+    );
+    expect(loadSettings()).toMatchObject({ apiKey: "k", provider: "api", enableCodex: false, openaiKey: "" });
+  });
+
   it("깨진 JSON 이면 기본값", () => {
     vi.stubGlobal("localStorage", fakeStorage({ "helpmydoc.settings.v1": "{oops" }));
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);

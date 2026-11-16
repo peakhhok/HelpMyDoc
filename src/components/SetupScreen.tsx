@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { CommandBox } from "./CommandBox";
 import type { BridgeStatus } from "../lib/bridgeClient";
 import {
   LOGIN_COMMAND,
@@ -51,35 +52,10 @@ function Row({
   );
 }
 
-function CommandBox({ label, command }: { label: string; command: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="cmd">
-      <div className="small-text muted">{label}</div>
-      <div className="cmd-row">
-        <code>{command}</code>
-        <button
-          type="button"
-          className="ghost small"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(command);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1500);
-            } catch {
-              /* 클립보드를 못 쓰면 직접 선택해서 복사 */
-            }
-          }}
-        >
-          {copied ? "복사됨" : "복사"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export function SetupScreen({ mode, settings, bridge, onRefresh, onComplete, onSkip }: Props) {
-  const [tab, setTab] = useState<"claude-code" | "api">(mode === "first-run" ? "claude-code" : settings.provider);
+  const [tab, setTab] = useState<"claude-code" | "api">(
+    mode === "first-run" || settings.provider !== "api" ? "claude-code" : "api",
+  );
   const [apiKey, setApiKey] = useState(settings.apiKey);
   const [model, setModel] = useState<string>(settings.model);
   const setup = evaluateSetup(bridge);

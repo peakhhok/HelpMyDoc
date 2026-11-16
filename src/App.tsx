@@ -4,12 +4,13 @@ import { PdfViewer, type PdfViewerHandle } from "./components/PdfViewer";
 import { ChatPanel } from "./components/ChatPanel";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { SetupScreen } from "./components/SetupScreen";
-import { fetchBridgeStatus, type BridgeStatus } from "./lib/bridgeClient";
+import { fetchBridgeStatus, type BridgeStatus, type CliId } from "./lib/bridgeClient";
 import { sha256Hex } from "./lib/docId";
 import { loadDoc, updateDoc } from "./lib/docStore";
 import type { UiMessage } from "./lib/history";
 import { openPdf } from "./lib/pdf";
-import { loadSettings, saveSettings, type Settings } from "./lib/settings";
+import { getProvider } from "./lib/providers";
+import { loadSettings, saveSettings, type ProviderId, type Settings } from "./lib/settings";
 import { evaluateSetup } from "./lib/setup";
 import { dropExpired, loadLimits, mergeLimits, saveLimits, type UsageLimits } from "./lib/usage";
 
@@ -29,7 +30,12 @@ export default function App() {
   const [selection, setSelection] = useState("");
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [showSettings, setShowSettings] = useState(false);
+  /** 설정창을 열 때 먼저 보여줄 연결 방식 (준비가 안 된 연결을 골랐을 때) */
+  const [settingsProvider, setSettingsProvider] = useState<ProviderId | undefined>(undefined);
+  /** Claude Code 상태 */
   const [bridge, setBridge] = useState<BridgeStatus | null>(null);
+  /** Codex 상태 (Codex 연결을 켠 경우에만 확인한다) */
+  const [codex, setCodex] = useState<BridgeStatus | null>(null);
   /** 마지막으로 알려진 구독 한도 사용률 (이미 초기화된 창은 제외) */
   const [limits, setLimits] = useState<UsageLimits | null>(() => loadLimits());
   const limitsRef = useRef(limits);
@@ -53,12 +59,35 @@ export default function App() {
 
   const refreshBridge = useCallback((silent?: boolean) => {
     if (!silent) setBridge(null);
-    fetchBridgeStatus().then(setBridge);
+    fetchBridgeStatus("claude-code").then(setBridge);
   }, []);
 
-  useEffect(() => {
-    fetchBridgeStatus().then(setBridge);
+  const refreshCodex = useCallback((silent?: boolean) => {
+    if (!silent) setCodex(null);
+    fetchBridgeStatus("codex").then(setCodex);
   }, []);
+
+  const refreshCli = useCallback(
+    (id: CliId) => (id === "codex" ? refreshCodex() : refreshBridge()),
+    [refreshBridge, refreshCodex],
+  );
+
+  useEffect(() => {
+    fetchBridgeStatus("claude-code").then(setBridge);
+    // Codex 는 사용자가 켠 경우에만 실행해 본다.
+    if (settingsRef.current.enableCodex) fetchBridgeStatus("codex").then(setCodex);
+  }, []);
+
+  const openSettings = useCallback((provider?: ProviderId) => {
+    setSettingsProvider(provider);
+    setShowSettings(true);
+  }, []);
+
+  const switchProvider = (id: ProviderId) => {
+    const next = { ...settings, provider: id };
+    setSettings(next);
+    saveSettings(next);
+  };
 
   const onLimits = useCallback((next: UsageLimits) => {
     const merged = mergeLimits(limitsRef.current, next);
@@ -90,16 +119,21 @@ export default function App() {
   }, [bridge, startupDone, claudeMode, skipGate, setup.step]);
 
   // 창으로 돌아올 때마다 조용히 다시 확인한다. (터미널에서 로그인하고 돌아오면 바로 반영, 로그인이 풀렸으면 배너)
+  const codexMode = settings.provider === "codex" && settings.enableCodex;
   useEffect(() => {
-    if (!claudeMode) return;
-    const onFocus = () => document.visibilityState === "visible" && refreshBridge(true);
+    if (!claudeMode && !codexMode) return;
+    const onFocus = () => {
+      if (document.visibilityState !== "visible") return;
+      if (claudeMode) refreshBridge(true);
+      if (codexMode) refreshCodex(true);
+    };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
     return () => {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onFocus);
     };
-  }, [claudeMode, refreshBridge]);
+  }, [claudeMode, codexMode, refreshBridge, refreshCodex]);
 
   const showSetup = !settings.onboarded || forceSetup || sticky || (claudeMode && !startupDone && !skipGate);
   const closeSetup = () => {
@@ -257,8 +291,13 @@ export default function App() {
             </div>
           </>
         )}
-        <button className="ghost" onClick={() => setShowSettings(true)}>
-          ⚙ 설정{settings.provider === "api" && !settings.apiKey && <span className="dot" />}
+        <button className="ghost" onClick={() => openSettings()}>
+          ⚙ 설정
+          {settings.provider !== "claude-code" &&
+            settings.provider !== "codex" &&
+            getProvider(settings.provider).unavailableReason({ settings, bridge, codex }) !== null && (
+              <span className="dot" />
+            )}
         </button>
       </header>
 
@@ -296,9 +335,14 @@ export default function App() {
           onClearSelection={() => setSelection("")}
           settings={settings}
           bridge={bridge}
-          onOpenSettings={() => setShowSettings(true)}
+          codex={codex}
+          onOpenSettings={openSettings}
+          onSwitchProvider={switchProvider}
           onOpenSetup={() => setForceSetup(true)}
-          onRecheckBridge={() => refreshBridge(true)}
+          onRecheckBridge={() => {
+            refreshBridge(true);
+            if (settingsRef.current.enableCodex) refreshCodex(true);
+          }}
           limits={limits}
           onLimits={onLimits}
         />
@@ -319,7 +363,9 @@ export default function App() {
         <SettingsDialog
           settings={settings}
           bridge={bridge}
-          onRefreshBridge={() => refreshBridge()}
+          codex={codex}
+          initialProvider={settingsProvider}
+          onRefreshBridge={refreshCli}
           onOpenSetup={() => {
             setShowSettings(false);
             setForceSetup(true);
@@ -330,6 +376,7 @@ export default function App() {
             setSettings(next);
             saveSettings(next);
             setShowSettings(false);
+            if (next.enableCodex) refreshCodex(true);
           }}
         />
       )}

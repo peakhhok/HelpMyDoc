@@ -1,7 +1,8 @@
-// 로컬 브리지: 사용자 PC에 설치된 Claude Code(`claude -p`)를 그대로 실행하고 응답을 스트리밍한다.
+// 로컬 브리지: 사용자 PC에 설치된 공식 CLI(Claude Code `claude -p`, Codex `codex exec`)를 그대로 실행하고
+// 응답을 스트리밍한다. CLI 별 차이(인자, 출력 형식)는 adapters.mjs 에 있다.
 //
-// 지켜야 할 원칙 (Anthropic 약관/사용 정책):
-//  - Claude Code 바이너리는 수정 없이 그대로 실행한다. 로그인은 Claude Code 가 직접 처리한다.
+// 지켜야 할 원칙 (각 회사의 약관/사용 정책):
+//  - 공식 프로그램은 수정 없이 그대로 실행한다. 로그인은 그 프로그램이 직접 처리한다.
 //  - 이 프로그램은 로그인 토큰/세션을 읽거나 저장하거나 중계하지 않는다.
 //  - 127.0.0.1 에서만 열리며, 본인 PC 에서 본인 계정으로만 쓰는 용도다.
 //    (다른 사람에게 서버로 제공하거나 구독 한도를 공유하는 용도로 쓰지 말 것)
@@ -9,14 +10,13 @@ import { spawn, execFile } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveClaudeCommand } from "./claude-path.mjs";
+import { adapters, resolveAdapterCommand } from "./adapters.mjs";
 
-const PREFIX = "/api/claude-code/";
-const WORKDIR = join(tmpdir(), "helpmydoc-claude-code"); // 프로젝트 CLAUDE.md 등이 섞이지 않도록 빈 폴더에서 실행
 const MAX_BODY = 4 * 1024 * 1024;
 const MAX_CONCURRENT = 2;
 const TIMEOUT_MS = 5 * 60 * 1000;
 const MODEL_RE = /^[a-z0-9][a-z0-9.\-\[\]]{0,63}$/i;
+const ROUTE_RE = /^\/api\/([a-z-]+)\/([a-z]+)(?:\?.*)?$/;
 
 let running = 0;
 
@@ -43,43 +43,38 @@ function isTrustedRequest(req) {
   return true;
 }
 
-function run(cmd, args, timeout = 8000) {
+/** 프로젝트 설정 등이 섞이지 않도록 CLI 마다 빈 임시 폴더에서 실행한다. */
+function workdirFor(adapter) {
+  const dir = join(tmpdir(), `helpmydoc-${adapter.id}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** cli: resolveCli 의 결과 ({ command, prefixArgs, env }) */
+function run(cli, args, cwd, timeout = 8000) {
   return new Promise((resolve) => {
-    execFile(cmd, args, { timeout, cwd: WORKDIR, windowsHide: true }, (err, stdout) =>
-      resolve({ err, stdout: String(stdout ?? "") }),
+    execFile(
+      cli.command,
+      [...cli.prefixArgs, ...args],
+      { timeout, cwd, windowsHide: true, env: { ...process.env, ...cli.env } },
+      (err, stdout, stderr) =>
+        resolve({
+          ok: !err,
+          code: err ? (typeof err.code === "number" ? err.code : -1) : 0,
+          stdout: String(stdout ?? ""),
+          stderr: String(stderr ?? ""),
+        }),
     );
   });
 }
 
-async function status() {
-  mkdirSync(WORKDIR, { recursive: true });
-  const cmd = resolveClaudeCommand();
-  // platform: 화면에서 OS 에 맞는 설치 안내를 보여주기 위함
-  // apiKeyEnv: 환경변수 API 키가 있으면 Claude Code 가 구독 대신 API 과금으로 동작할 수 있어 경고하기 위함 (값은 노출하지 않는다)
-  const base = { platform: process.platform, apiKeyEnv: !!process.env.ANTHROPIC_API_KEY };
-  const v = await run(cmd, ["--version"]);
-  if (v.err) return { ...base, available: false };
-  const out = { ...base, available: true, version: v.stdout.trim().split("\n")[0] };
-  const a = await run(cmd, ["auth", "status", "--json"]);
-  try {
-    const j = JSON.parse(a.stdout);
-    // 계정 식별 정보는 노출하지 않고 로그인 여부와 방식만 전달한다.
-    out.loggedIn = !!j.loggedIn;
-    out.authMethod = j.authMethod ?? null;
-  } catch {
-    out.loggedIn = undefined;
-  }
+async function status(adapter) {
+  const cwd = workdirFor(adapter);
+  const cli = resolveAdapterCommand(adapter);
+  const out = await adapter.status({ run: (c, args) => run(c, args, cwd), cli });
+  // 윈도우에서 npm 래퍼(.cmd)만 있고 실행할 방법을 못 찾은 경우를 화면에서 안내할 수 있게 알린다.
+  if (!out.available && cli.shimOnly) out.shimOnly = true;
   return out;
-}
-
-const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
-
-/** 한도 창 하나에서 사용률(0~1)과 초기화 시각(epoch 초)만 꺼낸다. 낯선 형식이면 undefined. */
-function pickWindow(w) {
-  if (!w || typeof w.utilization !== "number" || !Number.isFinite(w.utilization)) return undefined;
-  // 0~1 비율이 기본이지만, 퍼센트(0~100)로 오는 버전에 대비해 1보다 크면 100으로 나눈다.
-  const utilization = Math.min(1, Math.max(0, w.utilization > 1 ? w.utilization / 100 : w.utilization));
-  return { utilization, resetsAt: typeof w.resetsAt === "number" ? w.resetsAt : undefined };
 }
 
 function readBody(req) {
@@ -100,7 +95,7 @@ function readBody(req) {
   });
 }
 
-async function chat(req, res) {
+async function chat(adapter, req, res) {
   if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) {
     return json(res, 415, { error: "application/json 만 허용됩니다." });
   }
@@ -117,24 +112,9 @@ async function chat(req, res) {
   }
   if (running >= MAX_CONCURRENT) return json(res, 429, { error: "동시에 처리할 수 있는 요청 수를 넘었습니다." });
 
-  mkdirSync(WORKDIR, { recursive: true });
-  // 순수 채팅 용도: 파일/명령 도구, MCP, 슬래시 명령, 프로젝트 설정을 모두 끈다.
-  const args = [
-    "-p",
-    "--output-format",
-    "stream-json",
-    "--include-partial-messages",
-    "--verbose",
-    "--tools",
-    "",
-    "--no-session-persistence",
-    "--strict-mcp-config",
-    "--disable-slash-commands",
-    "--setting-sources",
-    "user",
-  ];
-  if (typeof system === "string" && system) args.push("--append-system-prompt", system);
-  if (model) args.push("--model", model);
+  const cwd = workdirFor(adapter);
+  const cli = resolveAdapterCommand(adapter);
+  const args = adapter.buildArgs({ system: typeof system === "string" ? system : "", model });
 
   running++;
   res.writeHead(200, {
@@ -144,17 +124,16 @@ async function chat(req, res) {
   });
   const send = (o) => res.writable && res.write(JSON.stringify(o) + "\n");
 
-  const child = spawn(resolveClaudeCommand(), args, {
-    cwd: WORKDIR,
+  const child = spawn(cli.command, [...cli.prefixArgs, ...args], {
+    cwd,
+    env: { ...process.env, ...cli.env },
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
   const timer = setTimeout(() => child.kill("SIGTERM"), TIMEOUT_MS);
+  const state = adapter.newState();
   let buf = "";
   let stderr = "";
-  let streamed = false;
-  let lastAssistant = "";
-  let failure = "";
   let finished = false;
 
   const finish = () => {
@@ -165,8 +144,7 @@ async function chat(req, res) {
   };
 
   child.on("error", (e) => {
-    failure = e.code === "ENOENT" ? "claude 명령을 찾을 수 없습니다. Claude Code 를 설치해 주세요." : e.message;
-    send({ t: "error", message: failure });
+    send({ t: "error", message: e.code === "ENOENT" ? adapter.notFoundMessage : e.message });
     finish();
     res.end();
   });
@@ -184,33 +162,7 @@ async function chat(req, res) {
       } catch {
         continue;
       }
-      if (
-        e.type === "stream_event" &&
-        e.event?.type === "content_block_delta" &&
-        e.event.delta?.type === "text_delta"
-      ) {
-        streamed = true;
-        send({ t: "text", text: e.event.delta.text });
-      } else if (e.type === "assistant") {
-        lastAssistant = (e.message?.content ?? [])
-          .filter((b) => b.type === "text")
-          .map((b) => b.text)
-          .join("");
-      } else if (e.type === "rate_limit_event") {
-        // 구독 한도 사용률(5시간/7일). 사용률과 초기화 시각만 전달하고 그 밖의 필드(세션 ID 등)는 버린다.
-        const w = e.rate_limit_info?.unifiedWindows;
-        const fiveHour = pickWindow(w?.five_hour);
-        const sevenDay = pickWindow(w?.seven_day);
-        if (fiveHour || sevenDay) send({ t: "limits", fiveHour, sevenDay });
-      } else if (e.type === "result") {
-        if (e.is_error) failure = String(e.result ?? "Claude Code 오류");
-        const u = e.usage;
-        if (u && typeof u === "object") {
-          // 이번 답변의 토큰 수 (입력은 캐시된 분량 포함). 비용(total_cost_usd)은 정가 환산값이라 구독에서는 의미가 없어 보내지 않는다.
-          const inputTokens = num(u.input_tokens) + num(u.cache_creation_input_tokens) + num(u.cache_read_input_tokens);
-          send({ t: "usage", inputTokens, outputTokens: num(u.output_tokens) });
-        }
-      }
+      for (const ev of adapter.handle(e, state)) send(ev);
     }
   });
   child.stderr.on("data", (d) => {
@@ -218,13 +170,7 @@ async function chat(req, res) {
   });
   child.on("close", (code) => {
     if (finished) return;
-    if (!streamed && lastAssistant && !failure) send({ t: "text", text: lastAssistant });
-    else if (!streamed && (failure || code !== 0)) {
-      send({
-        t: "error",
-        message: failure || stderr.trim().slice(0, 400) || `claude 가 코드 ${code} 로 종료되었습니다.`,
-      });
-    }
+    for (const ev of adapter.finish(state, { code, stderr })) send(ev);
     send({ t: "done" });
     finish();
     res.end();
@@ -236,23 +182,24 @@ async function chat(req, res) {
   });
 
   child.stdin.on("error", () => {});
-  child.stdin.end(prompt);
+  child.stdin.end(adapter.buildStdin({ prompt, system: typeof system === "string" ? system : "" }));
 }
 
-/** connect 스타일 미들웨어. 해당 경로가 아니면 next() 로 넘긴다. */
+/** connect 스타일 미들웨어. 브리지 경로(/api/<cli>/…)가 아니면 next() 로 넘긴다. */
 export function claudeCodeBridge(req, res, next) {
-  const url = req.url ?? "";
-  if (!url.startsWith(PREFIX)) return next();
+  const m = ROUTE_RE.exec(req.url ?? "");
+  const adapter = m && Object.hasOwn(adapters, m[1]) ? adapters[m[1]] : null;
+  if (!adapter) return next();
   if (!isTrustedRequest(req)) return json(res, 403, { error: "허용되지 않은 출처입니다." });
 
-  const route = url.slice(PREFIX.length).split("?")[0];
+  const route = m[2];
   if (route === "status" && req.method === "GET") {
-    status().then(
+    status(adapter).then(
       (s) => json(res, 200, s),
       (e) => json(res, 500, { error: String(e) }),
     );
   } else if (route === "chat" && req.method === "POST") {
-    chat(req, res).catch((e) => {
+    chat(adapter, req, res).catch((e) => {
       if (!res.headersSent) json(res, 500, { error: String(e?.message ?? e) });
       else res.end();
     });

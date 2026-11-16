@@ -4,7 +4,9 @@ import type { Provider } from "./types";
 /** 사용자의 Anthropic API 키로 브라우저에서 직접 호출한다. */
 export const apiProvider: Provider = {
   id: "api",
-  label: "API 키",
+  label: "Claude API 키",
+  short: "Claude",
+  group: "api",
   describe: (s) => s.model,
   unavailableReason: ({ settings }) =>
     settings.apiKey

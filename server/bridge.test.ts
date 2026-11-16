@@ -40,6 +40,35 @@ process.stdin.on("end", () => {
 });
 `;
 
+// 공식 문서(codex exec --json)의 이벤트 형식을 따르는 가짜 codex
+const FAKE_CODEX = `#!/usr/bin/env node
+const fs = require("fs");
+const a = process.argv.slice(2);
+if (a[0] === "--version") { console.log("codex-cli 9.9.9"); process.exit(0); }
+if (a[0] === "login" && a[1] === "status") {
+  const m = process.env.FAKE_CODEX_LOGIN;
+  if (m === "out") { console.error("Not logged in"); process.exit(1); }
+  if (m === "weird") { console.log("???"); process.exit(2); }
+  console.log("Logged in using ChatGPT (secret@example.com)"); process.exit(0);
+}
+if (process.env.FAKE_CODEX_ARGS_FILE) fs.writeFileSync(process.env.FAKE_CODEX_ARGS_FILE, JSON.stringify(a));
+let input = "";
+process.stdin.on("data", (d) => (input += d));
+process.stdin.on("end", () => {
+  if (process.env.FAKE_CODEX_STDIN_FILE) fs.writeFileSync(process.env.FAKE_CODEX_STDIN_FILE, input);
+  const emit = (o) => console.log(JSON.stringify(o));
+  const mode = process.env.FAKE_CODEX_MODE;
+  emit({ type: "thread.started", thread_id: "SECRET-THREAD" });
+  emit({ type: "turn.started" });
+  if (mode === "fail") { emit({ type: "turn.failed", error: { message: "rate limited" } }); process.exit(1); }
+  if (mode === "tool") emit({ type: "item.completed", item: { id: "item_1", type: "command_execution", command: "bash -lc ls", status: "completed" } });
+  emit({ type: "item.completed", item: { id: "item_2", type: "reasoning", text: "thinking" } });
+  emit({ type: "item.completed", item: { id: "item_3", type: "agent_message", text: "codex:" + input.trim().split("\\n").pop() } });
+  if (mode === "two") emit({ type: "item.completed", item: { id: "item_4", type: "agent_message", text: "second" } });
+  emit({ type: "turn.completed", usage: { input_tokens: 24763, cached_input_tokens: 24448, output_tokens: 122, reasoning_output_tokens: 0 } });
+});
+`;
+
 interface Res {
   status: number;
   text: string;
@@ -78,6 +107,14 @@ const chat = (body: object, headers: Record<string, string> = {}) =>
     body: JSON.stringify(body),
   });
 
+const codexChat = (body: object, headers: Record<string, string> = {}) =>
+  request({
+    method: "POST",
+    path: "/api/codex/chat",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+
 const events = (text: string) =>
   text
     .split("\n")
@@ -105,6 +142,8 @@ describe.skipIf(process.platform === "win32")("claude code bridge", () => {
     dir = mkdtempSync(join(tmpdir(), "helpmydoc-fake-"));
     writeFileSync(join(dir, "claude"), FAKE_CLAUDE);
     chmodSync(join(dir, "claude"), 0o755);
+    writeFileSync(join(dir, "codex"), FAKE_CODEX);
+    chmodSync(join(dir, "codex"), 0o755);
     process.env.PATH = dir + delimiter + originalPath;
     server = http.createServer((req, res) =>
       claudeCodeBridge(req, res, () => {
@@ -127,6 +166,7 @@ describe.skipIf(process.platform === "win32")("claude code bridge", () => {
     delete process.env.FAKE_LOGGED_IN;
     delete process.env.FAKE_ARGS_FILE;
     delete process.env.FAKE_PID_FILE;
+    for (const k of Object.keys(process.env)) if (k.startsWith("FAKE_CODEX_")) delete process.env[k];
   });
 
   describe("라우팅", () => {
@@ -216,6 +256,121 @@ describe.skipIf(process.platform === "win32")("claude code bridge", () => {
       } finally {
         delete process.env.ANTHROPIC_API_KEY;
       }
+    });
+  });
+
+  describe("Codex 어댑터", () => {
+    it("status: 버전과 로그인 방식만 알려주고 계정 정보는 노출하지 않는다", async () => {
+      const r = await request({ path: "/api/codex/status" });
+      expect(r.status).toBe(200);
+      expect(JSON.parse(r.text)).toEqual({
+        platform: process.platform,
+        available: true,
+        version: "codex-cli 9.9.9",
+        loggedIn: true,
+        authMethod: "chatgpt",
+      });
+      expect(r.text).not.toContain("secret@example.com");
+    });
+
+    it("status: 로그인 안 됨(종료 코드 1, 'Not logged in')", async () => {
+      process.env.FAKE_CODEX_LOGIN = "out";
+      const j = JSON.parse((await request({ path: "/api/codex/status" })).text);
+      expect(j).toMatchObject({ available: true, loggedIn: false, authMethod: null });
+    });
+
+    it("status: 형식을 알 수 없으면 막지 않고 loggedIn 을 비워 둔다", async () => {
+      process.env.FAKE_CODEX_LOGIN = "weird";
+      const j = JSON.parse((await request({ path: "/api/codex/status" })).text);
+      expect(j.available).toBe(true);
+      expect(j.loggedIn).toBeUndefined();
+    });
+
+    it("status: codex 가 없으면 available:false", async () => {
+      const saved = process.env.PATH;
+      process.env.PATH = "/nonexistent";
+      try {
+        expect(JSON.parse((await request({ path: "/api/codex/status" })).text)).toEqual({
+          platform: process.platform,
+          available: false,
+        });
+      } finally {
+        process.env.PATH = saved;
+      }
+    });
+
+    it("chat: 답변과 토큰 사용량을 전달하고, 세션 ID 등은 버린다", async () => {
+      const r = await codexChat({ prompt: "질문입니다", system: "SYS" });
+      expect(r.status).toBe(200);
+      const ev = events(r.text) as Array<Record<string, unknown>>;
+      expect(ev.filter((e) => e.t === "text").map((e) => e.text)).toEqual(["codex:질문입니다"]);
+      expect(ev.find((e) => e.t === "usage")).toEqual({ t: "usage", inputTokens: 24763, outputTokens: 122 });
+      expect(ev.at(-1)).toEqual({ t: "done" });
+      expect(r.text).not.toContain("SECRET-THREAD");
+    });
+
+    it("chat: 읽기 전용 샌드박스·세션 저장 안 함·사용자 설정 무시로 실행하고, 프롬프트는 인자가 아니라 표준입력으로 넘긴다", async () => {
+      const argsFile = join(dir, "codex-args.json");
+      const stdinFile = join(dir, "codex-stdin.txt");
+      process.env.FAKE_CODEX_ARGS_FILE = argsFile;
+      process.env.FAKE_CODEX_STDIN_FILE = stdinFile;
+      await codexChat({ prompt: "문서 질문 XYZ", system: "SYSTEM-PROMPT", model: "gpt-5.5" });
+      const a: string[] = JSON.parse(readFileSync(argsFile, "utf8"));
+      expect(a[0]).toBe("exec");
+      for (const flag of ["--json", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules"]) {
+        expect(a).toContain(flag);
+      }
+      expect(a[a.indexOf("-s") + 1]).toBe("read-only");
+      expect(a[a.indexOf("-m") + 1]).toBe("gpt-5.5");
+      expect(a.some((x) => /danger|workspace-write|bypass/i.test(x))).toBe(false);
+      expect(a.join(" ")).not.toContain("문서 질문 XYZ"); // 프롬프트는 인자에 없다
+      const stdin = readFileSync(stdinFile, "utf8");
+      expect(stdin).toContain("SYSTEM-PROMPT");
+      expect(stdin).toContain("Do not run shell commands"); // 도구 사용 금지 지침
+      expect(stdin.trim().endsWith("문서 질문 XYZ")).toBe(true);
+    });
+
+    it("chat: model 을 생략하면 -m 을 넘기지 않는다", async () => {
+      const argsFile = join(dir, "codex-args2.json");
+      process.env.FAKE_CODEX_ARGS_FILE = argsFile;
+      await codexChat({ prompt: "hi" });
+      expect(JSON.parse(readFileSync(argsFile, "utf8"))).not.toContain("-m");
+    });
+
+    it("chat: 메시지가 둘이면 이어 붙인다", async () => {
+      process.env.FAKE_CODEX_MODE = "two";
+      const ev = events((await codexChat({ prompt: "q" })).text);
+      expect(
+        ev
+          .filter((e) => e.t === "text")
+          .map((e) => e.text)
+          .join(""),
+      ).toBe("codex:q\n\nsecond");
+    });
+
+    it("chat: 모델이 도구를 쓰려 했으면 화면에 알린다", async () => {
+      process.env.FAKE_CODEX_MODE = "tool";
+      const ev = events((await codexChat({ prompt: "q" })).text) as Array<Record<string, unknown>>;
+      expect(String(ev.find((e) => e.t === "notice")?.text)).toContain("도구를 1번");
+    });
+
+    it("chat: 실패(turn.failed)를 error 이벤트로 전달한다", async () => {
+      process.env.FAKE_CODEX_MODE = "fail";
+      const ev = events((await codexChat({ prompt: "q" })).text);
+      expect(ev.find((e) => e.t === "error")?.message).toBe("rate limited");
+    });
+
+    it("model 값 검증과 Origin 검사가 Codex 경로에도 똑같이 적용된다", async () => {
+      expect((await codexChat({ prompt: "q", model: "--dangerously-bypass-approvals-and-sandbox" })).status).toBe(400);
+      expect((await codexChat({ prompt: "q" }, { origin: "https://evil.example" })).status).toBe(403);
+      expect((await request({ path: "/api/codex/status", headers: { host: `evil.example:${port}` } })).status).toBe(
+        403,
+      );
+    });
+
+    it("알 수 없는 CLI 경로는 브리지가 처리하지 않는다", async () => {
+      expect(await request({ path: "/api/gemini/status" })).toEqual({ status: 404, text: "next" });
+      expect(await request({ path: "/api/__proto__/status" })).toEqual({ status: 404, text: "next" });
     });
   });
 

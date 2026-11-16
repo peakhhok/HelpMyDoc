@@ -5,7 +5,12 @@ export const MODELS = [
   { id: "claude-fable-5-2", label: "Claude Fable 5.2" },
 ] as const;
 
-export type ProviderId = "api" | "claude-code";
+/**
+ * claude-code: 내 PC의 Claude Code(구독 로그인)
+ * codex: 내 PC의 Codex CLI(ChatGPT 구독 로그인) — 실험 기능, 설정에서 위험 안내를 확인하고 켠 경우만
+ * api: Anthropic API 키 / openai: OpenAI API 키 / gemini: Gemini API 키
+ */
+export type ProviderId = "claude-code" | "codex" | "api" | "openai" | "gemini";
 
 /**
  * 로컬 Claude Code 에 넘길 모델 별칭.
@@ -19,11 +24,20 @@ export const CC_MODELS = [
 ] as const;
 
 export interface Settings {
-  /** api: 내 API 키로 직접 호출 / claude-code: 내 PC의 Claude Code(구독 로그인) */
+  /** 지금 사용 중인 연결 방식 (채팅창 위에서 바로 바꿀 수 있다) */
   provider: ProviderId;
   ccModel: string;
   apiKey: string;
   model: string;
+  /** Codex(ChatGPT 구독) 연결을 켰는가 — 기본은 꺼짐 */
+  enableCodex: boolean;
+  /** "" 면 Codex 기본 모델 */
+  codexModel: string;
+  openaiKey: string;
+  /** 설정에서 '모델 불러오기'로 고른 모델 */
+  openaiModel: string;
+  geminiKey: string;
+  geminiModel: string;
   /** 현재 페이지 앞뒤로 함께 보낼 페이지 수 */
   radius: number;
   /** 문서별 대화와 마지막으로 본 페이지를 이 PC 에 저장 */
@@ -39,6 +53,12 @@ export const DEFAULT_SETTINGS: Settings = {
   ccModel: "sonnet",
   apiKey: "",
   model: MODELS[0].id,
+  enableCodex: false,
+  codexModel: "",
+  openaiKey: "",
+  openaiModel: "",
+  geminiKey: "",
+  geminiModel: "",
   radius: 1,
   saveHistory: true,
   onboarded: false,

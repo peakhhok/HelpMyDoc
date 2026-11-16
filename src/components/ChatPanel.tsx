@@ -4,12 +4,14 @@ import remarkGfm from "remark-gfm";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { ClaudeError } from "../lib/anthropicApi";
 import { LimitsBadge } from "./LimitsBadge";
+import { ProviderSwitcher } from "./ProviderSwitcher";
 import { ClaudeCodeError, type BridgeStatus } from "../lib/bridgeClient";
 import { buildPrompt } from "../lib/context";
 import { updateDoc } from "../lib/docStore";
 import { linkifyPages, trimHistory, type UiMessage } from "../lib/history";
 import { getPageText } from "../lib/pdf";
 import { getProvider } from "../lib/providers";
+import type { ProviderId } from "../lib/settings";
 import { evaluateSetup } from "../lib/setup";
 import type { Settings } from "../lib/settings";
 import { formatTokens, type UsageLimits } from "../lib/usage";
@@ -27,8 +29,14 @@ interface Props {
   /** 답변 속 p.N 링크를 눌렀을 때 */
   onGoToPage: (page: number) => void;
   settings: Settings;
+  /** Claude Code 상태 */
   bridge: BridgeStatus | null;
-  onOpenSettings: () => void;
+  /** Codex 상태 */
+  codex: BridgeStatus | null;
+  /** 설정 열기 (id 를 주면 그 연결 방식의 탭으로) */
+  onOpenSettings: (provider?: ProviderId) => void;
+  /** 준비된 연결 방식으로 바꾼다 */
+  onSwitchProvider: (id: ProviderId) => void;
   /** 연결 설정(시작 화면) 열기 */
   onOpenSetup: () => void;
   /** Claude Code 상태를 조용히 다시 확인 (오류가 났을 때 로그인 풀림 등을 알아채기 위해) */
@@ -51,7 +59,9 @@ export function ChatPanel({
   onGoToPage,
   settings,
   bridge,
+  codex,
   onOpenSettings,
+  onSwitchProvider,
   onOpenSetup,
   onRecheckBridge,
   limits,
@@ -72,7 +82,12 @@ export function ChatPanel({
   const persist = settings.saveHistory && !!docId && !!doc;
   // 사용 중에 Claude Code 연결이 끊기면(로그아웃 등) 화면을 막지 않고 배너로 알린다.
   const setupStep = evaluateSetup(bridge).step;
-  const connectionIssue = provider.id === "claude-code" && setupStep !== "ready" && setupStep !== "checking";
+  const env = { settings, bridge, codex };
+  const claudeIssue = provider.id === "claude-code" && setupStep !== "ready" && setupStep !== "checking";
+  // 그 밖의 연결(Codex, API 키들)은 준비가 안 된 이유를 그대로 보여준다. (Codex 상태를 아직 확인 중일 땐 조용히)
+  const otherReason =
+    provider.id === "claude-code" || (provider.id === "codex" && !codex) ? null : provider.unavailableReason(env);
+  const connectionIssue = claudeIssue || !!otherReason;
 
   // 답변이 끝날 때마다(스트리밍 중에는 저장하지 않음) 이 문서의 대화를 저장한다.
   const loadedMessages = useRef(initialMessages);
@@ -85,10 +100,10 @@ export function ChatPanel({
     const question = raw.trim();
     if (!question || busy) return;
     if (!doc) return setError("먼저 PDF 파일을 열어 주세요.");
-    const reason = provider.unavailableReason({ settings, bridge });
+    const reason = provider.unavailableReason(env);
     if (reason) {
       setError(reason);
-      return provider.id === "claude-code" ? onOpenSetup() : onOpenSettings();
+      return provider.id === "claude-code" ? onOpenSetup() : onOpenSettings(provider.id);
     }
 
     setError(null);
@@ -122,6 +137,13 @@ export function ChatPanel({
         prompt: ctx.prompt,
         signal: ac.signal,
         onLimits,
+        onNotice: (notice) =>
+          setMessages((cur) => {
+            const next = cur.slice();
+            const last = next[next.length - 1];
+            if (last?.role === "assistant") next[next.length - 1] = { ...last, notice };
+            return next;
+          }),
         // 답변이 끝나면 이번 답변에 쓰인 토큰 수를 마지막 답변 메시지에 붙인다.
         onUsage: (usage) =>
           setMessages((cur) => {
@@ -141,7 +163,7 @@ export function ChatPanel({
     } catch (e) {
       const aborted = (e as Error).name === "AbortError";
       if (!aborted) {
-        if (provider.id === "claude-code") onRecheckBridge(); // 로그인이 풀렸는지 등을 다시 확인
+        if (provider.id === "claude-code" || provider.id === "codex") onRecheckBridge(); // 로그인이 풀렸는지 등을 다시 확인
         setError(
           e instanceof ClaudeError || e instanceof ClaudeCodeError ? e.message : `오류: ${(e as Error).message}`,
         );
@@ -163,7 +185,7 @@ export function ChatPanel({
   return (
     <aside className="chat">
       <div className="chat-head">
-        <strong>Claude</strong>
+        <ProviderSwitcher env={env} onSwitch={onSwitchProvider} onNeedSetup={(id) => onOpenSettings(id)} />
         <span className="muted">{provider.describe(settings)}</span>
         {provider.id === "claude-code" && <LimitsBadge limits={limits} />}
         <span className="spacer" />
@@ -254,6 +276,7 @@ export function ChatPanel({
                 입력 {formatTokens(m.usage.inputTokens)} · 출력 {formatTokens(m.usage.outputTokens)} 토큰
               </div>
             )}
+            {m.role === "assistant" && m.notice && <div className="usage-note notice">⚠ {m.notice}</div>}
           </div>
         ))}
         {error && <div className="error">{error}</div>}
@@ -263,14 +286,20 @@ export function ChatPanel({
       {connectionIssue && (
         <div className="banner" role="alert">
           <span>
-            {setupStep === "login"
-              ? "Claude Code 로그인이 필요해요."
-              : setupStep === "install"
-                ? "Claude Code를 찾을 수 없어요."
-                : "내 PC의 Claude Code에 연결할 수 없어요."}
+            {claudeIssue
+              ? setupStep === "login"
+                ? "Claude Code 로그인이 필요해요."
+                : setupStep === "install"
+                  ? "Claude Code를 찾을 수 없어요."
+                  : "내 PC의 Claude Code에 연결할 수 없어요."
+              : otherReason}
           </span>
-          <button type="button" className="small" onClick={onOpenSetup}>
-            연결 점검
+          <button
+            type="button"
+            className="small"
+            onClick={() => (claudeIssue ? onOpenSetup() : onOpenSettings(provider.id))}
+          >
+            {claudeIssue ? "연결 점검" : "설정"}
           </button>
         </div>
       )}

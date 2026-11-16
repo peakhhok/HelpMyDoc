@@ -65,6 +65,7 @@ describe("classifyAuth", () => {
     expect(classifyAuth("claude.ai")).toBe("subscription");
     expect(classifyAuth("claudeai")).toBe("subscription");
     expect(classifyAuth("OAuth")).toBe("subscription");
+    expect(classifyAuth("chatgpt")).toBe("subscription"); // Codex 의 ChatGPT 로그인
     expect(classifyAuth("subscription")).toBe("subscription");
     expect(classifyAuth("something_new")).toBe("other");
     expect(classifyAuth(null)).toBeNull();

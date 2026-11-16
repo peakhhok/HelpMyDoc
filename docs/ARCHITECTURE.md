@@ -29,32 +29,36 @@ HelpMyDoc은 **"AI가 지금 사용자가 보고 있는 페이지를 안다"** �
 
 ## 모듈 지도
 
-| 경로                             | 책임                                                                                          | pdf.js 의존 | 테스트 |
-| -------------------------------- | --------------------------------------------------------------------------------------------- | :---------: | :----: |
-| `src/lib/pdf.ts`                 | pdf.js 로딩(한글 cMap 포함), 페이지 텍스트 추출·캐시                                          |      ✔      |   –    |
-| `src/lib/context.ts`             | 현재 페이지 주변 텍스트 → 프롬프트 조립 (주입된 함수만 사용)                                  |      ✘      |   ✔    |
-| `src/lib/anthropicApi.ts`        | Anthropic Messages API 스트리밍, 시스템 프롬프트                                              |      ✘      |   ✔    |
-| `src/lib/bridgeClient.ts`        | 로컬 브리지 상태 확인·스트리밍 클라이언트                                                     |      ✘      |   ✔    |
-| `src/lib/providers/`             | `Provider` 인터페이스, 레지스트리, 구현체                                                     |      ✘      |   ✔    |
-| `src/lib/usage.ts`               | 토큰·구독 한도 표시 로직(퍼센트, 남은 시간, 경고 단계), 마지막 한도 값 저장                   |      ✘      |   ✔    |
-| `src/components/LimitsBadge.tsx` | 채팅창 머리말의 구독 한도 사용률 표시                                                         |      ✘      |   –    |
-| `src/lib/setup.ts`               | 브리지 상태 → 시작 화면 단계 판단(연결/설치/로그인/준비), 인증 방식 분류, OS별 공식 설치 명령 |      ✘      |   ✔    |
-| `src/components/SetupScreen.tsx` | 시작 화면: 연결 방식 선택 + 단계별 점검 + 자동 재확인                                         |      ✘      |   –    |
-| `src/lib/docStore.ts`            | 문서별 대화·마지막 페이지 저장(IndexedDB), 사용 불가 환경에서는 no-op                         |      ✘      |   ✔    |
-| `src/lib/docId.ts`               | 파일 내용 SHA-256 → 문서 식별자                                                               |      ✘      |   ✔    |
-| `src/lib/history.ts`             | 이전 대화 길이 제한, 답변 속 `p.N` → 페이지 링크                                              |      ✘      |   ✔    |
-| `src/lib/settings.ts`            | 설정 저장(localStorage), 모델 목록                                                            |      ✘      |   ✔    |
-| `src/components/PdfViewer.tsx`   | 가상 렌더링(보이는 쪽만 그림), 현재 페이지 감지, 텍스트 레이어                                |      ✔      |   –    |
-| `src/components/ChatPanel.tsx`   | 채팅 UI, 중지/오류 처리                                                                       |      ✘      |   –    |
-| `server/bridge.mjs`              | `claude -p` 실행 브리지 (127.0.0.1 전용)                                                      |      ✘      |   ✔    |
-| `bin/helpmydoc.mjs`              | `dist/` + 브리지를 함께 서비스하는 CLI (`npm start`)                                          |      ✘      |   –    |
+| 경로                                    | 책임                                                                                          | pdf.js 의존 | 테스트 |
+| --------------------------------------- | --------------------------------------------------------------------------------------------- | :---------: | :----: |
+| `src/lib/pdf.ts`                        | pdf.js 로딩(한글 cMap 포함), 페이지 텍스트 추출·캐시                                          |      ✔      |   –    |
+| `src/lib/context.ts`                    | 현재 페이지 주변 텍스트 → 프롬프트 조립 (주입된 함수만 사용)                                  |      ✘      |   ✔    |
+| `src/lib/anthropicApi.ts`               | Anthropic Messages API 스트리밍, 시스템 프롬프트                                              |      ✘      |   ✔    |
+| `src/lib/bridgeClient.ts`               | 로컬 브리지 상태 확인·스트리밍 클라이언트                                                     |      ✘      |   ✔    |
+| `src/lib/providers/`                    | `Provider` 인터페이스, 레지스트리, 구현체                                                     |      ✘      |   ✔    |
+| `src/lib/openaiApi.ts` · `geminiApi.ts` | OpenAI·Gemini 스트리밍 호출과 모델 목록 조회(모델 이름을 앱에 고정하지 않음)                  |      ✘      |   ✔    |
+| `src/lib/sse.ts`                        | SSE `data:` 줄 읽기(청크 경계·CRLF·[DONE] 처리)                                               |      ✘      |   ✔    |
+| `src/components/ProviderSwitcher.tsx`   | 채팅창 위 연결 전환 목록(준비 상태 ●/○), 준비 안 된 연결은 설정으로                           |      ✘      |   –    |
+| `server/adapters.mjs`                   | CLI 어댑터: 인자 구성, 상태 확인, 출력 해석(Claude Code·Codex)                                |      ✘      |   ✔    |
+| `src/lib/usage.ts`                      | 토큰·구독 한도 표시 로직(퍼센트, 남은 시간, 경고 단계), 마지막 한도 값 저장                   |      ✘      |   ✔    |
+| `src/components/LimitsBadge.tsx`        | 채팅창 머리말의 구독 한도 사용률 표시                                                         |      ✘      |   –    |
+| `src/lib/setup.ts`                      | 브리지 상태 → 시작 화면 단계 판단(연결/설치/로그인/준비), 인증 방식 분류, OS별 공식 설치 명령 |      ✘      |   ✔    |
+| `src/components/SetupScreen.tsx`        | 시작 화면: 연결 방식 선택 + 단계별 점검 + 자동 재확인                                         |      ✘      |   –    |
+| `src/lib/docStore.ts`                   | 문서별 대화·마지막 페이지 저장(IndexedDB), 사용 불가 환경에서는 no-op                         |      ✘      |   ✔    |
+| `src/lib/docId.ts`                      | 파일 내용 SHA-256 → 문서 식별자                                                               |      ✘      |   ✔    |
+| `src/lib/history.ts`                    | 이전 대화 길이 제한, 답변 속 `p.N` → 페이지 링크                                              |      ✘      |   ✔    |
+| `src/lib/settings.ts`                   | 설정 저장(localStorage), 모델 목록                                                            |      ✘      |   ✔    |
+| `src/components/PdfViewer.tsx`          | 가상 렌더링(보이는 쪽만 그림), 현재 페이지 감지, 텍스트 레이어                                |      ✔      |   –    |
+| `src/components/ChatPanel.tsx`          | 채팅 UI, 중지/오류 처리                                                                       |      ✘      |   –    |
+| `server/bridge.mjs`                     | `claude -p` 실행 브리지 (127.0.0.1 전용)                                                      |      ✘      |   ✔    |
+| `bin/helpmydoc.mjs`                     | `dist/` + 브리지를 함께 서비스하는 CLI (`npm start`)                                          |      ✘      |   –    |
 
 ## 확장 지점
 
-### 새 AI 연결 방식 추가 (GPT, Gemini, Ollama …)
+### 새 AI 연결 방식 추가 (Ollama 등)
 
-1. `src/lib/providers/<name>.ts`에 `Provider`를 구현한다. (`describe`, `unavailableReason`, `stream`)
-2. `src/lib/providers/index.ts`의 `PROVIDERS`에 등록하고, `src/lib/settings.ts`의 `ProviderId`에 id를 추가한다.
+1. `src/lib/providers/<name>.ts`에 `Provider`를 구현한다. (`label`, `short`, `group`, `describe`, `unavailableReason`, `stream`)
+2. `src/lib/providers/index.ts`의 `PROVIDERS`·`PROVIDER_ORDER`에 등록하고, `src/lib/settings.ts`의 `ProviderId`와 설정 필드를 추가한다.
 3. `SettingsDialog`에 해당 방식의 입력란을 추가한다.
 4. `providers.test.ts`에 사용 가능 조건 테스트를 추가한다.
 
@@ -75,6 +79,10 @@ HelpMyDoc은 **"AI가 지금 사용자가 보고 있는 페이지를 안다"** �
 - **연결 점검은 실행할 때만 막는다**: 설정을 마친 사용자가 Claude Code 방식으로 열었는데 준비가 안 됐으면 시작 화면에서 안내하고, 사용 중에 로그인이 풀리면 화면을 막지 않고 채팅창 배너로만 알린다. 창으로 돌아올 때마다 상태를 조용히 다시 확인해 터미널에서 로그인하고 돌아오면 바로 반영된다. API 키 방식이나 브리지가 없는 환경은 이 점검의 대상이 아니다.
 - **설치와 로그인은 앱이 대신 실행하지 않는다**: 공식 명령을 보여주고 사용자가 직접 실행하게 한다. 인터넷에서 받은 스크립트를 앱이 실행하지 않으며, 로그인은 Anthropic의 흐름(Claude Code)에서만 완료되고 앱은 로그인 여부만 확인한다.
 - **사용량은 Claude Code가 알려주는 값만 전달한다**: 브리지는 답변마다 토큰 수와 5시간/7일 한도 사용률·초기화 시각만 화면으로 보내고, 세션 ID와 `total_cost_usd`는 보내지 않는다. 비용 값은 정가로 환산한 숫자라 구독에서는 실제 청구액이 아니어서 혼동을 부르기 때문이다. API 방식은 응답의 `usage`로 토큰 수만 표시한다(요금은 모델별 단가를 알아야 해서 표시하지 않음).
+- **연결을 도중에 바꿔도 대화가 이어진다**: 대화는 앱이 들고 있고 매 질문마다 (최근 분량의) 이전 대화를 선택된 연결에 넘기기 때문이다. 연결 전환은 설정 값 하나(`provider`)를 바꾸는 것이다. 대신 이전 대화가 새로 고른 회사에도 전송된다는 점을 README의 프라이버시 항목에 적었다.
+- **CLI 어댑터**: 공식 CLI마다 다른 부분(인자, 로그인 확인, 출력 형식)은 어댑터 한 곳에 두고, 브리지는 보안 검사·프로세스 관리·스트리밍만 맡는다. 새 CLI를 더하려면 어댑터를 추가하면 된다.
+- **Codex는 실험 기능, 기본 꺼짐**: 약관 허용 여부가 불확실하고 도구를 완전히 끌 수 없어(읽기 전용 샌드박스 + 지침 + `--ephemeral` + 사용자 설정 무시로 제한) 사용자가 위험 안내에 동의한 뒤에만 실행한다. 모델이 도구를 쓰려 하면 답변 아래에 알린다. 윈도우의 npm 래퍼(`codex.cmd`)는 셸 없이 실행할 수 없어 옆의 JS 진입점을 직접 실행한다.
+- **Gemini 구독 로그인은 지원하지 않는다**: Google 약관이 서드파티 도구의 접근을 금지하고 불이익이 사용자 계정에 가기 때문이다. API 키 방식만 지원한다.
 - **서버 없음 (BYOK)**: 문서와 API 키가 개발자 서버를 거치지 않는다. 운영 비용·개인정보 부담이 없고 오픈소스로 배포하기 쉽다.
 - **데스크톱은 Electron + 같은 로컬 서버**: 브리지(Node)를 그대로 재사용하고 브라우저 버전과 코드가 하나다. 창에는 `nodeIntegration` 없이 `http://127.0.0.1:<고정 포트>`를 로드한다. 포트를 고정하는 이유는 localStorage(설정)가 포트별로 분리되기 때문이다. (크기가 크고 로컬 포트가 열린다는 단점이 있어, 필요해지면 IPC 방식이나 Tauri로 옮길 수 있다.)
 - **보이는 쪽만 렌더링**: 500쪽 문서도 DOM·메모리가 일정하다. 현재 페이지는 이분 탐색으로 계산해 스크롤 중에도 가볍다.

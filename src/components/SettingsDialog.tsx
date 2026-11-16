@@ -1,20 +1,31 @@
 import { useState } from "react";
 import { CC_MODELS, MODELS, type ProviderId, type Settings } from "../lib/settings";
-import type { BridgeStatus } from "../lib/bridgeClient";
+import type { BridgeStatus, CliId } from "../lib/bridgeClient";
+import { listGeminiModels } from "../lib/geminiApi";
+import { listOpenAIModels } from "../lib/openaiApi";
+import { PROVIDER_ORDER, PROVIDERS, providerTitle } from "../lib/providers";
 import { describeAuth, evaluateSetup } from "../lib/setup";
+import { CommandBox } from "./CommandBox";
 import { HistoryManager } from "./HistoryManager";
+import { ModelPicker } from "./ModelPicker";
 
 interface Props {
   settings: Settings;
+  /** Claude Code 상태 */
   bridge: BridgeStatus | null;
-  onRefreshBridge: () => void;
-  /** 연결 점검(시작 화면) 열기 */
+  /** Codex 상태 */
+  codex: BridgeStatus | null;
+  /** 처음에 열어 둘 연결 방식 (준비가 안 된 연결을 골랐을 때) */
+  initialProvider?: ProviderId;
+  onRefreshBridge: (id: CliId) => void;
+  /** Claude Code 연결 점검(시작 화면) 열기 */
   onOpenSetup: () => void;
   onSave: (s: Settings) => void;
   onClose: () => void;
 }
 
-function bridgeLine(b: BridgeStatus | null): { ok: boolean; text: string } {
+/** CLI 연결 상태 한 줄 */
+function cliLine(name: string, b: BridgeStatus | null): { ok: boolean; text: string } {
   const setup = evaluateSetup(b);
   switch (setup.step) {
     case "checking":
@@ -25,23 +36,67 @@ function bridgeLine(b: BridgeStatus | null): { ok: boolean; text: string } {
         text: "이 PC와 연결할 수 없음 — 데스크톱 앱 또는 내 PC에서 `npm run dev` / `npm start`로 실행해야 합니다.",
       };
     case "install":
-      return { ok: false, text: "Claude Code가 설치되어 있지 않습니다." };
+      return {
+        ok: false,
+        text: b?.shimOnly
+          ? `${name} 실행 파일을 찾지 못했습니다. (npm 래퍼만 있고 실제 진입점을 찾을 수 없음)`
+          : `${name}가 설치되어 있지 않습니다.`,
+      };
     case "login":
-      return { ok: false, text: `Claude Code ${b?.version ?? ""} 감지됨 — 로그인이 필요합니다.` };
+      return { ok: false, text: `${name} ${b?.version ?? ""} 감지됨 — 로그인이 필요합니다.` };
     case "ready": {
       const via = describeAuth(setup.authKind, b?.authMethod);
-      return { ok: true, text: `Claude Code ${b?.version ?? ""} · ${via}${setup.warnings.length ? " ⚠" : ""}` };
+      return { ok: true, text: `${name} ${b?.version ?? ""} · ${via}${setup.warnings.length ? " ⚠" : ""}` };
     }
   }
 }
 
-export function SettingsDialog({ settings, bridge, onRefreshBridge, onOpenSetup, onSave, onClose }: Props) {
-  const [draft, setDraft] = useState(settings);
-  const line = bridgeLine(bridge);
+function StatusLine({
+  line,
+  onRefresh,
+  onFix,
+}: {
+  line: { ok: boolean; text: string };
+  onRefresh: () => void;
+  onFix?: () => void;
+}) {
+  return (
+    <div className={line.ok ? "status ok" : "status bad"}>
+      <span>
+        {line.ok ? "● " : "○ "}
+        {line.text}
+      </span>
+      <span className="status-actions">
+        {!line.ok && onFix && (
+          <button type="button" className="ghost small" onClick={onFix}>
+            연결 점검
+          </button>
+        )}
+        <button type="button" className="ghost small" onClick={onRefresh}>
+          다시 확인
+        </button>
+      </span>
+    </div>
+  );
+}
+
+export function SettingsDialog({
+  settings,
+  bridge,
+  codex,
+  initialProvider,
+  onRefreshBridge,
+  onOpenSetup,
+  onSave,
+  onClose,
+}: Props) {
+  const [draft, setDraft] = useState<Settings>({ ...settings, provider: initialProvider ?? settings.provider });
+  const set = (patch: Partial<Settings>) => setDraft((d) => ({ ...d, ...patch }));
+  const env = { settings: draft, bridge, codex };
 
   const choose = (provider: ProviderId) => {
-    setDraft({ ...draft, provider });
-    if (provider === "claude-code") onRefreshBridge();
+    set({ provider });
+    if (provider === "claude-code" || provider === "codex") onRefreshBridge(provider);
   };
 
   return (
@@ -51,82 +106,56 @@ export function SettingsDialog({ settings, bridge, onRefreshBridge, onOpenSetup,
         onMouseDown={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
-          onSave({ ...draft, apiKey: draft.apiKey.trim() });
+          onSave({
+            ...draft,
+            apiKey: draft.apiKey.trim(),
+            openaiKey: draft.openaiKey.trim(),
+            geminiKey: draft.geminiKey.trim(),
+            codexModel: draft.codexModel.trim(),
+          });
         }}
       >
         <h2>설정</h2>
 
-        <div className="provider-tabs" role="radiogroup" aria-label="AI 연결 방식">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={draft.provider === "api"}
-            className={draft.provider === "api" ? "tab on" : "tab"}
-            onClick={() => choose("api")}
-          >
-            API 키
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={draft.provider === "claude-code"}
-            className={draft.provider === "claude-code" ? "tab on" : "tab"}
-            onClick={() => choose("claude-code")}
-          >
-            내 PC의 Claude Code
-          </button>
+        <div className="provider-groups" role="radiogroup" aria-label="AI 연결 방식">
+          {(["subscription", "api"] as const).map((g) => (
+            <div key={g} className="provider-group">
+              <div className="small-text muted">
+                {g === "subscription" ? "구독으로 쓰기 (내 PC의 프로그램)" : "API 키로 쓰기"}
+              </div>
+              <div className="provider-tabs wrap">
+                {PROVIDER_ORDER.filter((id) => PROVIDERS[id].group === g).map((id) => {
+                  const ready = PROVIDERS[id].unavailableReason(env) === null;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      role="radio"
+                      aria-checked={draft.provider === id}
+                      className={draft.provider === id ? "tab on" : "tab"}
+                      onClick={() => choose(id)}
+                      title={PROVIDERS[id].unavailableReason(env) ?? "사용 가능"}
+                    >
+                      {ready ? "● " : "○ "}
+                      {providerTitle(PROVIDERS[id])}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
 
-        {draft.provider === "api" ? (
+        {draft.provider === "claude-code" && (
           <>
-            <label>
-              Anthropic API 키
-              <input
-                type="password"
-                autoComplete="off"
-                placeholder="sk-ant-..."
-                value={draft.apiKey}
-                onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })}
-                autoFocus
-              />
-            </label>
-            <p className="hint">
-              키는 이 브라우저의 localStorage에만 저장되고, Anthropic API(api.anthropic.com)로만 전송됩니다. 키는{" "}
-              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">
-                Anthropic Console
-              </a>
-              에서 발급할 수 있습니다.
-            </p>
+            <StatusLine
+              line={cliLine("Claude Code", bridge)}
+              onRefresh={() => onRefreshBridge("claude-code")}
+              onFix={onOpenSetup}
+            />
             <label>
               모델
-              <select value={draft.model} onChange={(e) => setDraft({ ...draft, model: e.target.value })}>
-                {MODELS.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </>
-        ) : (
-          <>
-            <div className={line.ok ? "status ok" : "status bad"}>
-              {line.ok ? "● " : "○ "}
-              {line.text}
-              <span className="status-actions">
-                {!line.ok && (
-                  <button type="button" className="ghost small" onClick={onOpenSetup}>
-                    연결 점검
-                  </button>
-                )}
-                <button type="button" className="ghost small" onClick={onRefreshBridge}>
-                  다시 확인
-                </button>
-              </span>
-            </div>
-            <label>
-              모델
-              <select value={draft.ccModel} onChange={(e) => setDraft({ ...draft, ccModel: e.target.value })}>
+              <select value={draft.ccModel} onChange={(e) => set({ ccModel: e.target.value })}>
                 {CC_MODELS.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.label}
@@ -146,9 +175,175 @@ export function SettingsDialog({ settings, bridge, onRefreshBridge, onOpenSetup,
           </>
         )}
 
+        {draft.provider === "codex" && (
+          <>
+            <div className="risk" role="note">
+              <strong>⚠ 실험 기능입니다. 켜기 전에 읽어 주세요.</strong>
+              <ul>
+                <li>
+                  OpenAI가 "공식 Codex CLI를 다른 앱이 대신 실행하는 방식"을 명시적으로 허용하는지는 확인하지
+                  못했습니다. 약관 해석과 책임은 사용자에게 있습니다.
+                </li>
+                <li>
+                  Codex는 도구를 완전히 끌 수 없습니다. 그래서 <b>파일 수정이 막힌 읽기 전용 샌드박스</b>에서, 도구를
+                  쓰지 말라는 지침과 함께 실행합니다. 그래도 PDF 속 악성 문구가 모델에게 내 PC의 파일을 읽게 시도할
+                  가능성은 남으므로 <b>출처를 모르는 PDF에는 쓰지 마세요.</b> 모델이 도구를 쓰려 하면 답변 아래에 알려
+                  드립니다.
+                </li>
+                <li>본인 PC에서 본인 계정으로만 사용하세요. 서버로 호스팅하거나 구독을 공유하지 마세요.</li>
+              </ul>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={draft.enableCodex}
+                  onChange={(e) => {
+                    set({ enableCodex: e.target.checked });
+                    if (e.target.checked) onRefreshBridge("codex");
+                  }}
+                />
+                위 내용을 이해했고, ChatGPT(Codex) 연결을 켭니다
+              </label>
+            </div>
+
+            {draft.enableCodex && (
+              <>
+                <StatusLine line={cliLine("Codex", codex)} onRefresh={() => onRefreshBridge("codex")} />
+                {!cliLine("Codex", codex).ok && codex?.bridgeReachable && (
+                  <div className="step-body">
+                    {!codex.available && <CommandBox label="Codex 설치 (터미널)" command="npm i -g @openai/codex" />}
+                    {codex.available && codex.loggedIn === false && (
+                      <CommandBox label="ChatGPT 계정으로 로그인 (터미널)" command="codex login" />
+                    )}
+                    <p className="hint">
+                      자세한 안내는{" "}
+                      <a href="https://developers.openai.com/codex/auth" target="_blank" rel="noreferrer">
+                        OpenAI Codex 문서
+                      </a>
+                      를 보세요. 설치·로그인을 마치고 돌아오면 자동으로 다시 확인합니다.
+                    </p>
+                  </div>
+                )}
+                <label>
+                  모델 (선택)
+                  <input
+                    value={draft.codexModel}
+                    placeholder="비워 두면 Codex 기본 모델"
+                    onChange={(e) => set({ codexModel: e.target.value })}
+                  />
+                </label>
+                <p className="hint">
+                  Codex가 알고 있는 모델 이름을 직접 적습니다. 모르면 비워 두세요. 로그인과 사용량은 Codex가 직접
+                  처리하며 HelpMyDoc은 로그인 정보를 읽거나 저장하지 않습니다.
+                </p>
+              </>
+            )}
+          </>
+        )}
+
+        {draft.provider === "api" && (
+          <>
+            <label>
+              Anthropic API 키
+              <input
+                type="password"
+                autoComplete="off"
+                placeholder="sk-ant-..."
+                value={draft.apiKey}
+                onChange={(e) => set({ apiKey: e.target.value })}
+                autoFocus
+              />
+            </label>
+            <p className="hint">
+              키는 이 브라우저의 localStorage에만 저장되고, Anthropic API(api.anthropic.com)로만 전송됩니다. 키는{" "}
+              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">
+                Anthropic Console
+              </a>
+              에서 발급할 수 있습니다.
+            </p>
+            <label>
+              모델
+              <select value={draft.model} onChange={(e) => set({ model: e.target.value })}>
+                {MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
+
+        {draft.provider === "openai" && (
+          <>
+            <label>
+              OpenAI API 키
+              <input
+                type="password"
+                autoComplete="off"
+                placeholder="sk-..."
+                value={draft.openaiKey}
+                onChange={(e) => set({ openaiKey: e.target.value })}
+                autoFocus
+              />
+            </label>
+            <p className="hint">
+              키는 이 PC에만 저장되고 OpenAI API(api.openai.com)로만 전송됩니다.{" "}
+              <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">
+                OpenAI 플랫폼
+              </a>
+              에서 발급하세요. ChatGPT 구독과는 별개의 종량제 결제입니다.
+            </p>
+            <div className="field">
+              모델
+              <ModelPicker
+                apiKey={draft.openaiKey}
+                value={draft.openaiModel}
+                onChange={(m) => set({ openaiModel: m })}
+                load={listOpenAIModels}
+              />
+            </div>
+          </>
+        )}
+
+        {draft.provider === "gemini" && (
+          <>
+            <label>
+              Gemini API 키
+              <input
+                type="password"
+                autoComplete="off"
+                placeholder="AIza..."
+                value={draft.geminiKey}
+                onChange={(e) => set({ geminiKey: e.target.value })}
+                autoFocus
+              />
+            </label>
+            <p className="hint">
+              키는 이 PC에만 저장되고 Google(generativelanguage.googleapis.com)로만 전송됩니다.{" "}
+              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
+                Google AI Studio
+              </a>
+              에서 발급하세요. 무료 티어를 쓰면 입력 내용이 Google 제품 개선에 사용될 수 있으니 Google 정책을
+              확인하세요.
+            </p>
+            <div className="field">
+              모델
+              <ModelPicker
+                apiKey={draft.geminiKey}
+                value={draft.geminiModel}
+                onChange={(m) => set({ geminiModel: m })}
+                load={listGeminiModels}
+              />
+            </div>
+            <p className="hint">
+              Google 계정 로그인(구독) 방식은 Google 약관이 서드파티 도구의 접근을 금지하고 있어 지원하지 않습니다.
+            </p>
+          </>
+        )}
+
         <label>
           AI에게 보여줄 페이지 범위
-          <select value={draft.radius} onChange={(e) => setDraft({ ...draft, radius: Number(e.target.value) })}>
+          <select value={draft.radius} onChange={(e) => set({ radius: Number(e.target.value) })}>
             <option value={0}>현재 페이지만</option>
             <option value={1}>현재 페이지 ±1쪽 (기본)</option>
             <option value={2}>현재 페이지 ±2쪽</option>
@@ -156,15 +351,11 @@ export function SettingsDialog({ settings, bridge, onRefreshBridge, onOpenSetup,
           </select>
         </label>
         <p className="hint">
-          질문할 때마다 이 범위의 텍스트가 Claude에게 전송됩니다. 범위가 넓을수록 사용량이 늘어납니다.
+          질문할 때마다 이 범위의 텍스트가 선택한 AI에게 전송됩니다. 범위가 넓을수록 사용량이 늘어납니다.
         </p>
 
         <label className="check">
-          <input
-            type="checkbox"
-            checked={draft.saveHistory}
-            onChange={(e) => setDraft({ ...draft, saveHistory: e.target.checked })}
-          />
+          <input type="checkbox" checked={draft.saveHistory} onChange={(e) => set({ saveHistory: e.target.checked })} />
           문서별 대화와 마지막 페이지를 이 PC에 저장
         </label>
         <p className="hint">

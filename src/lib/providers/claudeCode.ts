@@ -17,8 +17,10 @@ export function toTranscript(history: ChatMessage[], prompt: string): string {
 /** 내 PC에 설치·로그인된 Claude Code 를 로컬 브리지로 실행한다. (구독 로그인은 Claude Code 가 직접 처리) */
 export const claudeCodeProvider: Provider = {
   id: "claude-code",
-  label: "내 PC의 Claude Code",
-  describe: (s) => `Claude Code · ${CC_MODELS.find((m) => m.id === s.ccModel)?.label ?? s.ccModel}`,
+  label: "Claude Code",
+  short: "Claude",
+  group: "subscription",
+  describe: (s) => CC_MODELS.find((m) => m.id === s.ccModel)?.label ?? s.ccModel,
   unavailableReason: ({ bridge }) =>
     bridge?.available && bridge.loggedIn !== false
       ? null

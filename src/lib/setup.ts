@@ -30,7 +30,7 @@ export function classifyAuth(authMethod: string | null | undefined): AuthKind | 
   if (!authMethod) return null;
   const m = authMethod.toLowerCase();
   if (/api|key/.test(m)) return "api-key";
-  if (/oauth|claude[._ -]?ai|subscription/.test(m)) return "subscription";
+  if (/oauth|claude[._ -]?ai|chatgpt|subscription/.test(m)) return "subscription";
   return "other";
 }
 

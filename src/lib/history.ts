@@ -6,6 +6,8 @@ export interface UiMessage extends ChatMessage {
   ref?: { from: number; to: number; selection: boolean; emptyPages: number[] };
   /** 답변(assistant)에 쓰인 토큰 수 */
   usage?: TurnUsage;
+  /** 답변에 대한 안내 (예: Codex 가 도구를 쓰려 했음) */
+  notice?: string;
 }
 
 /** AI 에게 보내는 이전 대화의 한도. 화면과 저장소에는 전체가 남는다. */

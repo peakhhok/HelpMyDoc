@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ClaudeCodeError, fetchBridgeStatus, streamClaudeCode } from "./bridgeClient";
+import { ClaudeCodeError, fetchBridgeStatus, streamClaudeCode, streamCli } from "./bridgeClient";
 
 const ndjson = (chunks: string[], init: ResponseInit = { status: 200 }) => {
   const enc = new TextEncoder();
@@ -123,5 +123,57 @@ describe("streamClaudeCode", () => {
       vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "허용되지 않은 출처입니다." }), { status: 403 })),
     );
     await expect(run().p).rejects.toThrow("허용되지 않은 출처입니다.");
+  });
+});
+
+describe("여러 CLI 지원", () => {
+  it("CLI id 에 따라 요청 주소가 달라진다 (상태 확인, 대화)", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ available: true }), { headers: { "content-type": "application/json" } }),
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    await fetchBridgeStatus("codex");
+    await fetchBridgeStatus();
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(["/api/codex/status", "/api/claude-code/status"]);
+
+    fetchMock.mockResolvedValue(ndjson([line({ t: "done" })]));
+    await streamCli("codex", {
+      prompt: "p",
+      system: "s",
+      model: "m",
+      signal: new AbortController().signal,
+      onText: () => {},
+    });
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("/api/codex/chat");
+    expect(JSON.parse(fetchMock.mock.calls.at(-1)?.[1].body)).toEqual({ prompt: "p", system: "s", model: "m" });
+  });
+
+  it("notice 이벤트를 콜백으로 전달한다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          ndjson([
+            line({ t: "text", text: "x" }),
+            line({ t: "notice", text: "도구를 1번 사용하려 했습니다" }),
+            line({ t: "done" }),
+          ]),
+        ),
+    );
+    const notices: string[] = [];
+    await streamCli("codex", {
+      prompt: "p",
+      system: "s",
+      model: "",
+      signal: new AbortController().signal,
+      onText: () => {},
+      onNotice: (t) => notices.push(t),
+    });
+    expect(notices).toEqual(["도구를 1번 사용하려 했습니다"]);
   });
 });
