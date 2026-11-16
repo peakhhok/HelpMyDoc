@@ -4,6 +4,7 @@ import {
   CHUNK_MAX_PAGES,
   buildOverview,
   buildScanPrompt,
+  digestMap,
   estimateScan,
   parseScanReply,
   planChunks,
@@ -66,7 +67,33 @@ describe("parseScanReply", () => {
     expect(r).toMatchObject({ title: "p.3–9", summary: "그냥 서술형 답변입니다" });
   });
   it("너무 긴 요약은 자른다", () => {
-    expect(parseScanReply("TITLE: t\nSUMMARY: " + "가".repeat(5000), c).summary.length).toBeLessThan(2000);
+    expect(parseScanReply("TITLE: t\nSUMMARY: " + "가".repeat(9000), c).summary.length).toBeLessThan(4100);
+  });
+
+  it("PAGES 형식이면 쪽별 한 줄 요약과 용어를 읽고, 구간 밖·중복 쪽은 버린다", () => {
+    const r = parseScanReply(
+      [
+        "TITLE: VPC 정책",
+        "PAGES:",
+        "p.3 | VPC Endpoint 개요 | 용어: VPC Endpoint, 엔드포인트, S3",
+        "- p.4 | 정책 문서 예시 | 용어: Endpoint Policy, Resource Policy",
+        "**p.5**: 잘못된 형식은 무시",
+        "p.5 | 라우팅 | 용어: route table",
+        "p.4 | 중복 줄 | 용어: x",
+        "p.99 | 구간 밖 | 용어: y",
+      ].join("\n"),
+      c,
+    );
+    expect(r.title).toBe("VPC 정책");
+    expect(r.pages?.map((d) => d.page)).toEqual([3, 4, 5]);
+    expect(r.pages?.[0]).toEqual({ page: 3, point: "VPC Endpoint 개요", terms: ["VPC Endpoint", "엔드포인트", "S3"] });
+    expect(r.pages?.[1].terms).toEqual(["Endpoint Policy", "Resource Policy"]);
+    expect(r.summary).toContain("p.3  VPC Endpoint 개요 [VPC Endpoint, 엔드포인트, S3]");
+    expect(digestMap({ version: 1, provider: "x", updatedAt: 1, chunks: [r] }).get(4)?.point).toBe("정책 문서 예시");
+  });
+
+  it("옛 형식(SUMMARY)의 결과에는 pages 가 없다", () => {
+    expect(parseScanReply("TITLE: t\nSUMMARY: x", c).pages).toBeUndefined();
   });
 });
 
@@ -201,6 +228,12 @@ describe("buildOverview", () => {
     expect(o).toContain("p.6–10  네트워크");
     expect(o).toContain("p.11–12  보안");
     expect(o).toContain("S:네트워크"); // 현재 구간 요약
+    const withPages = scan([
+      [1, 5, "개요"],
+      [6, 10, "네트워크"],
+    ]);
+    withPages.chunks[1].pages = [{ page: 7, point: "p", terms: [] }];
+    expect(buildOverview(withPages, 7)).not.toContain("S:네트워크"); // 쪽별 요약이 있으면 구간 요약은 생략
     expect(o).not.toContain("S:개요");
     expect(o).not.toContain("S:보안");
     expect(o).toContain("<document_overview");

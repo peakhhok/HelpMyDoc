@@ -12,6 +12,8 @@ export interface UiMessage extends ChatMessage {
     overview?: boolean;
     /** 내가 쓴 메모를 함께 보냈음 */
     notes?: boolean;
+    /** 함께 보낸 "비슷한 내용의 다른 쪽" */
+    related?: number[];
   };
   /** 답변(assistant)에 쓰인 토큰 수 */
   usage?: TurnUsage;

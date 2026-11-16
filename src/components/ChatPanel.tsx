@@ -7,8 +7,9 @@ import { LimitsBadge } from "./LimitsBadge";
 import { ProviderSwitcher } from "./ProviderSwitcher";
 import { ClaudeCodeError, type BridgeStatus } from "../lib/bridgeClient";
 import type { Highlight } from "../lib/annotations";
-import { buildPrompt } from "../lib/context";
-import { buildOverview, type ScanData } from "../lib/scan";
+import { buildPrompt, type RelatedEntry } from "../lib/context";
+import { buildOverview, digestMap, type ScanData } from "../lib/scan";
+import { bestExcerpt, findRelated, type PageIndex } from "../lib/related";
 import { updateDoc } from "../lib/docStore";
 import { linkifyPages, trimHistory, type UiMessage } from "../lib/history";
 import { getPageText } from "../lib/pdf";
@@ -53,6 +54,8 @@ interface Props {
   scan: ScanData | null;
   notes: Record<number, string>;
   highlights: Highlight[];
+  /** "비슷한 쪽 찾기" 색인 (문서를 열 때 백그라운드로 만든다) */
+  getIndex: () => Promise<PageIndex | null>;
 }
 
 const QUICK_PROMPTS = ["여기서 중요한 부분을 요약해줘", "이 페이지를 쉽게 설명해줘", "핵심 개념을 정리해줘"];
@@ -80,6 +83,7 @@ export function ChatPanel({
   scan,
   notes,
   highlights,
+  getIndex,
 }: Props) {
   const [messages, setMessages] = useState<UiMessage[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -141,7 +145,31 @@ export function ChatPanel({
           }
         }
       }
+      // 지금 쪽(과 선택·질문)과 내용이 비슷한 다른 쪽을 찾아 함께 보낸다. (이 PC 안에서 계산하며 AI 사용량을 쓰지 않는다)
+      let related: RelatedEntry[] = [];
+      if (settings.useOverview) {
+        const index = await getIndex();
+        if (index) {
+          const digests = digestMap(scan);
+          const found = findRelated(
+            index,
+            [
+              { text: await getPageText(doc, currentPage) },
+              { text: selection, weight: 3 },
+              { text: question, weight: 3 },
+            ],
+            { exclude: (p) => p >= from && p <= to, k: 4 },
+          );
+          related = found.map((r) => ({
+            page: r.page,
+            terms: r.terms,
+            point: digests.get(r.page)?.point,
+            excerpt: bestExcerpt(index.texts[r.page - 1] ?? "", r.matches, 400),
+          }));
+        }
+      }
       const ctx = await buildPrompt({
+        related,
         overview: settings.useOverview ? buildOverview(scan, currentPage) : "",
         notes: memos,
         numPages: doc.numPages,
@@ -162,6 +190,7 @@ export function ChatPanel({
           emptyPages: ctx.emptyPages,
           overview: ctx.overview,
           notes: ctx.notes,
+          related: ctx.related,
         },
       };
       setMessages([...history, userMsg, { role: "assistant", content: "" }]);
@@ -284,6 +313,16 @@ export function ChatPanel({
                 {m.ref.selection && " · 선택 텍스트 포함"}
                 {m.ref.overview && " · 📚 문서 개요 포함"}
                 {m.ref.notes && " · 📝 내 메모 포함"}
+                {m.ref.related && m.ref.related.length > 0 && (
+                  <>
+                    {" · 🔗 비슷한 내용: "}
+                    {m.ref.related.map((p) => (
+                      <button key={p} type="button" className="pagelink" onClick={() => onGoToPage(p)}>
+                        p.{p}
+                      </button>
+                    ))}
+                  </>
+                )}
                 {m.ref.emptyPages.length > 0 && ` · 텍스트 없는 쪽: ${m.ref.emptyPages.join(", ")}`}
               </div>
             )}

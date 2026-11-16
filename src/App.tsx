@@ -21,6 +21,7 @@ import {
 } from "./lib/annotations";
 import { loadDoc, updateDoc } from "./lib/docStore";
 import { sanitizeScan, type ScanData } from "./lib/scan";
+import { useDocIndex } from "./lib/useDocIndex";
 import { useScan } from "./lib/useScan";
 import type { UiMessage } from "./lib/history";
 import { openPdf } from "./lib/pdf";
@@ -249,6 +250,7 @@ export default function App() {
     [changeHighlights],
   );
 
+  const getIndex = useDocIndex(doc, scan);
   const scanProvider = getProvider(settings.provider);
   const scanUnavailable = scanProvider.unavailableReason({ settings, bridge, codex });
   const scanner = useScan({ doc, fileName, settings, unavailable: scanUnavailable, scan, changeScan, onLimits });
@@ -551,6 +553,7 @@ export default function App() {
               scan={scan}
               notes={notes}
               highlights={highlights}
+              getIndex={getIndex}
               onLimitsMissing={() => setLimitsMissing(true)}
             />
           </div>

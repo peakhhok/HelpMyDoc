@@ -2,11 +2,21 @@
 // 만든 개요는 문서별로 저장하고, 이후 질문에는 "전체 목차 + 현재 구간 요약"만 덧붙인다.
 // (질문할 때마다 문서 전체를 보내지 않는다.)
 
+/** AI 가 쪽마다 적어 둔 한 줄 요약과 핵심 용어 */
+export interface PageDigest {
+  page: number;
+  point: string;
+  terms: string[];
+}
+
 export interface ScanChunk {
   from: number;
   to: number;
   title: string;
+  /** 구간의 쪽별 요약을 읽기 좋게 이은 글 (화면 표시용) */
   summary: string;
+  /** 쪽별 요약과 용어 (비슷한 쪽을 찾을 때 쓴다). 옛 스캔 결과에는 없다 */
+  pages?: PageDigest[];
 }
 
 export interface ScanData {
@@ -32,8 +42,8 @@ export const CHUNK_MAX_PAGES = 30;
 /** 한 쪽에서 읽는 최대 글자 수 (질문 문맥과 같은 값) */
 export const PAGE_MAX_CHARS = 12_000;
 /** 질문에 덧붙이는 목차의 최대 글자 수 */
-export const OUTLINE_MAX_CHARS = 6_000;
-const SUMMARY_MAX_CHARS = 1_800;
+export const OUTLINE_MAX_CHARS = 3_000;
+const SUMMARY_MAX_CHARS = 4_000;
 const TITLE_MAX_CHARS = 100;
 
 /** 쪽별 글자 수로 구간을 나눈다. 같은 입력이면 항상 같은 구간이 나온다(이어하기에 필요). */
@@ -89,11 +99,11 @@ export function escapeXml(s: string): string {
 }
 
 export const SCAN_INSTRUCTION =
-  "이 구간은 문서 전체를 훑어 개요를 만드는 작업의 일부입니다. 위 내용만 근거로, 아래 형식으로만 한국어로 답하세요. 다른 말은 덧붙이지 마세요.\n" +
+  "이 구간은 문서 전체를 훑어 쪽별 색인을 만드는 작업의 일부입니다. 위 내용만 근거로, 아래 형식으로만 한국어로 답하세요. 다른 말은 덧붙이지 마세요.\n" +
   "TITLE: <이 구간의 주제를 한 줄로>\n" +
-  "SUMMARY:\n" +
-  "- <핵심 내용, 정의, 용어, 수치를 불릿으로 (최대 8개). 어느 쪽 내용인지 (p.N) 로 표시>\n" +
-  "- <공부할 때 놓치기 쉬운 포인트가 있으면 마지막에>";
+  "PAGES:\n" +
+  "p.<쪽 번호> | <그 쪽의 핵심을 한 줄로> | 용어: <그 쪽의 핵심 용어 3~6개를 쉼표로. 원문의 영어 용어는 그대로 쓰고, 같은 뜻의 한국어/영어 표현도 함께>\n" +
+  "내용이 있는 모든 쪽을 한 줄씩 적고, 앞 쪽의 반복이나 확장이면 한 줄 요약에 그렇게 밝히세요.";
 
 /** 구간 하나를 읽히는 요청 본문 (질문 문맥과 같은 <document_context> 형식) */
 export function buildScanPrompt(opts: {
@@ -117,16 +127,55 @@ export function buildScanPrompt(opts: {
   );
 }
 
-/** AI 의 답에서 제목과 요약을 꺼낸다. 형식을 안 지켰어도 답 전체를 요약으로 쓴다. */
+const PAGE_LINE = /^\s*[-*•]?\s*(?:p\.?|P\.?)\s*(\d+)\s*[|:：]\s*(.+)$/;
+
+function parseTerms(part: string): string[] {
+  const body = part.replace(/^\s*(?:용어|키워드|terms?|keywords?)\s*[:：]\s*/i, "");
+  return body
+    .split(/[,，、;；]/)
+    .map((t) => t.replace(/\*\*/g, "").trim())
+    .filter((t) => t && t.length <= 60)
+    .slice(0, 8);
+}
+
+/** AI 의 답에서 제목과 쪽별 요약을 꺼낸다. 형식을 안 지켰어도 답 전체를 요약으로 쓴다. */
 export function parseScanReply(reply: string, chunk: { from: number; to: number }): ScanChunk {
   const text = reply.replace(/\r/g, "").trim();
   const fallbackTitle = chunk.from === chunk.to ? `p.${chunk.from}` : `p.${chunk.from}–${chunk.to}`;
   const t = text.match(/^\s*(?:\*\*)?TITLE(?:\*\*)?\s*[:：]\s*(.+)$/im);
-  const s = text.match(/^\s*(?:\*\*)?SUMMARY(?:\*\*)?\s*[:：]\s*([\s\S]*)$/im);
   const title = (t?.[1] ?? "").replace(/\*\*/g, "").trim() || fallbackTitle;
-  let summary = (s ? s[1] : t ? text.replace(t[0], "") : text).trim();
+
+  const pages: PageDigest[] = [];
+  const seen = new Set<number>();
+  for (const line of text.split("\n")) {
+    const m = line.match(PAGE_LINE);
+    if (!m) continue;
+    const page = Number(m[1]);
+    if (page < chunk.from || page > chunk.to || seen.has(page)) continue;
+    const [point, ...rest] = m[2].split("|");
+    const termsPart = rest.join("|");
+    seen.add(page);
+    pages.push({ page, point: point.replace(/\*\*/g, "").trim(), terms: termsPart ? parseTerms(termsPart) : [] });
+  }
+
+  let summary: string;
+  if (pages.length > 0) {
+    summary = pages.map((d) => `p.${d.page}  ${d.point}${d.terms.length ? ` [${d.terms.join(", ")}]` : ""}`).join("\n");
+  } else {
+    const s = text.match(/^\s*(?:\*\*)?SUMMARY(?:\*\*)?\s*[:：]\s*([\s\S]*)$/im);
+    summary = (s ? s[1] : t ? text.replace(t[0], "") : text).trim();
+  }
   if (summary.length > SUMMARY_MAX_CHARS) summary = summary.slice(0, SUMMARY_MAX_CHARS) + "…";
-  return { from: chunk.from, to: chunk.to, title: title.slice(0, TITLE_MAX_CHARS), summary };
+  const out: ScanChunk = { from: chunk.from, to: chunk.to, title: title.slice(0, TITLE_MAX_CHARS), summary };
+  if (pages.length > 0) out.pages = pages;
+  return out;
+}
+
+/** 스캔 결과에서 쪽별 요약을 찾기 쉽게 모은다. */
+export function digestMap(scan: ScanData | null | undefined): Map<number, PageDigest> {
+  const m = new Map<number, PageDigest>();
+  for (const c of scan?.chunks ?? []) for (const d of c.pages ?? []) m.set(d.page, d);
+  return m;
 }
 
 export interface ScanProgress {
@@ -187,7 +236,22 @@ export function sanitizeScan(raw: unknown): ScanData | null {
     if (!c || typeof c !== "object") continue;
     const x = c as Record<string, unknown>;
     if (typeof x.from !== "number" || typeof x.to !== "number" || typeof x.summary !== "string") continue;
-    chunks.push({ from: x.from, to: x.to, title: typeof x.title === "string" ? x.title : "", summary: x.summary });
+    const pages: PageDigest[] = [];
+    if (Array.isArray(x.pages)) {
+      for (const d of x.pages) {
+        const o = d as Record<string, unknown> | null;
+        if (!o || typeof o.page !== "number" || typeof o.point !== "string") continue;
+        const terms = Array.isArray(o.terms) ? o.terms.filter((t): t is string => typeof t === "string") : [];
+        pages.push({ page: o.page, point: o.point, terms });
+      }
+    }
+    chunks.push({
+      from: x.from,
+      to: x.to,
+      title: typeof x.title === "string" ? x.title : "",
+      summary: x.summary,
+      ...(pages.length ? { pages } : {}),
+    });
   }
   if (chunks.length === 0) return null;
   return {
@@ -216,8 +280,9 @@ export function buildOverview(scan: ScanData | null | undefined, currentPage: nu
     outline += line;
   }
   const here = chunks.find((c) => currentPage >= c.from && currentPage <= c.to);
-  const hereText = here ? `\n[지금 보는 구간 ${range(here)} 요약]\n${here.summary}\n` : "";
+  // 쪽별 요약이 있는 스캔은 비슷한 쪽을 찾을 때 쓰므로, 구간 요약은 옛 형식일 때만 덧붙인다.
+  const hereText = here && !here.pages?.length ? `\n[지금 보는 구간 ${range(here)} 요약]\n${here.summary}\n` : "";
   return `<document_overview note="${escapeXml(
-    "사용자가 요청해 문서를 미리 훑어 만든 구간별 요약입니다. 정확한 내용은 document_context 의 원문을 우선하세요.",
+    "사용자가 요청해 문서를 미리 훑어 만든 구간별 목차입니다. 정확한 내용은 document_context 의 원문을 우선하세요.",
   )}">\n[목차]\n${outline}${hereText}</document_overview>`;
 }

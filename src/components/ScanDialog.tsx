@@ -47,8 +47,13 @@ export function ScanDialog(p: Props) {
       <div className="modal wide" role="dialog" aria-label="문서 스캔">
         <h2>🔍 문서 스캔</h2>
         <p className="hint">
-          {p.providerName}가 <b>{p.fileName || "문서"}</b>를 구간별로 한 번 읽고, 목차와 요약을 만들어 이 PC에 저장해
-          둬요. 이후 질문할 때는 이 개요를 함께 참고하고, 지금 보는 쪽은 원문으로 정확히 읽어요.
+          {p.providerName}가 <b>{p.fileName || "문서"}</b>를 구간별로 한 번 읽고, <b>쪽마다 한 줄 요약과 핵심 용어</b>를
+          적어 이 PC에 저장해 둬요. 질문할 때는 지금 보는 쪽과 <b>내용이 비슷한 다른 쪽</b>(예: 308쪽을 볼 때 100쪽의
+          같은 내용)을 찾아 함께 보내서, AI가 앞에서 나온 내용과 연결해 설명해요.
+        </p>
+        <p className="hint">
+          스캔하지 않아도 비슷한 쪽 찾기는 (이 PC 안에서, 사용량 없이) 동작해요. 스캔하면 표현이 달라도 같은 내용을
+          찾고, 찾은 쪽의 한 줄 요약도 함께 보내요.
         </p>
 
         {p.analyzing && (
@@ -119,7 +124,7 @@ export function ScanDialog(p: Props) {
 
         <label className="check">
           <input type="checkbox" checked={p.useOverview} onChange={(e) => p.onToggleUseOverview(e.target.checked)} />
-          질문할 때 문서 개요와 내 메모를 함께 보내기
+          질문할 때 비슷한 쪽·문서 목차·내 메모를 함께 보내기
         </label>
         {!p.persist && <p className="hint warn">기록 저장이 꺼져 있어서 스캔 결과는 창을 닫으면 사라져요.</p>}
 

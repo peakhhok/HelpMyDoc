@@ -12,6 +12,19 @@ export interface BuiltContext {
   overview: boolean;
   /** 사용자가 쓴 메모(현재 페이지 메모, 표시에 붙인 메모)가 포함됐는가 */
   notes: boolean;
+  /** 함께 보낸 "비슷한 내용의 다른 쪽" 번호 */
+  related: number[];
+}
+
+/** 지금 쪽과 내용이 비슷해서 함께 보내는 다른 쪽 */
+export interface RelatedEntry {
+  page: number;
+  /** 겹친 용어 */
+  terms: string[];
+  /** 문서 스캔 때 AI 가 적은 그 쪽의 한 줄 요약 (스캔 전이면 없음) */
+  point?: string;
+  /** 그 쪽 원문에서 겹친 용어가 몰린 부분 */
+  excerpt: string;
 }
 
 /** XML 속성값으로 안전하게 넣기 위한 이스케이프 (파일 이름에 따옴표 등이 있어도 구조가 깨지지 않게) */
@@ -35,10 +48,13 @@ export async function buildPrompt(opts: {
   overview?: string;
   /** 사용자가 쓴 메모: 페이지 번호와 내용 (참조 범위 안의 것만 호출한 쪽에서 골라 준다) */
   notes?: Array<{ page: number; text: string }>;
+  /** 내용이 비슷한 다른 쪽 (점수 순) */
+  related?: RelatedEntry[];
 }): Promise<BuiltContext> {
   const { numPages, getPageText, fileName, currentPage, radius, selection, question } = opts;
   const overview = (opts.overview ?? "").trim();
   const notes = (opts.notes ?? []).filter((n) => n.text.trim());
+  const related = opts.related ?? [];
   const from = Math.max(1, currentPage - radius);
   const to = Math.min(numPages, currentPage + radius);
 
@@ -53,6 +69,20 @@ export async function buildPrompt(opts: {
     );
   }
 
+  const relatedBlock = related.length
+    ? `\n<related_pages note="${escapeAttr(
+        "지금 보는 쪽과 내용이 비슷한 다른 쪽을 자동으로 찾은 것입니다. 앞에서 이미 나온 내용과 연결해 설명할 때 (p.N) 형식으로 쪽 번호를 밝혀 주세요. 정확한 내용은 document_context 의 원문을 우선하세요.",
+      )}">\n` +
+      related
+        .map(
+          (r) =>
+            `<related page="${r.page}"${r.terms.length ? ` terms="${escapeAttr(r.terms.join(", "))}"` : ""}>\n` +
+            (r.point ? `[요약] ${r.point}\n` : "") +
+            `${r.excerpt}\n</related>`,
+        )
+        .join("\n") +
+      `\n</related_pages>`
+    : "";
   const noteBlock = notes.length
     ? `\n<user_notes>\n` +
       notes.map((n) => `<note page="${n.page}">${escapeAttr(n.text.trim().slice(0, 1500))}</note>`).join("\n") +
@@ -63,7 +93,15 @@ export async function buildPrompt(opts: {
     (overview ? `${overview}\n\n` : "") +
     `<document_context file="${escapeAttr(fileName)}" total_pages="${numPages}" current_page="${currentPage}">\n` +
     pages.join("\n") +
-    `\n</document_context>${noteBlock}${sel}\n\n${question}`;
+    `\n</document_context>${relatedBlock}${noteBlock}${sel}\n\n${question}`;
 
-  return { prompt, from, to, emptyPages, overview: !!overview, notes: notes.length > 0 };
+  return {
+    prompt,
+    from,
+    to,
+    emptyPages,
+    overview: !!overview,
+    notes: notes.length > 0,
+    related: related.map((r) => r.page),
+  };
 }

@@ -127,4 +127,28 @@ describe("escapeAttr", () => {
     expect(r.prompt.trim().endsWith("요약해줘")).toBe(true);
     expect([r.overview, r.notes]).toEqual([true, true]);
   });
+
+  it("비슷한 쪽은 원문 뒤에 요약·용어·발췌와 함께 붙고, 쪽 번호가 결과에 담긴다", async () => {
+    const r = await buildPrompt({
+      ...base,
+      currentPage: 8,
+      radius: 0,
+      getPageText: pages({ 8: "EIGHT" }),
+      related: [
+        { page: 2, terms: ["vpc", "endpoint"], point: "엔드포인트 정책 개요", excerpt: "…Endpoint Policy 는…" },
+        { page: 5, terms: [], excerpt: "FIVE 발췌" },
+      ],
+    });
+    expect(r.related).toEqual([2, 5]);
+    expect(r.prompt).toContain("<related_pages");
+    expect(r.prompt).toContain(
+      '<related page="2" terms="vpc, endpoint">\n[요약] 엔드포인트 정책 개요\n…Endpoint Policy 는…\n</related>',
+    );
+    expect(r.prompt).toContain('<related page="5">\nFIVE 발췌\n</related>');
+    expect(r.prompt.indexOf("</document_context>")).toBeLessThan(r.prompt.indexOf("<related_pages"));
+    expect(r.prompt.trim().endsWith("요약해줘")).toBe(true);
+    expect((await buildPrompt({ ...base, currentPage: 8, radius: 0, getPageText: pages({ 8: "x" }) })).related).toEqual(
+      [],
+    );
+  });
 });
