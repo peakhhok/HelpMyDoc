@@ -24,7 +24,37 @@ jobs:
         env:
           # 코드 서명 인증서가 없으므로 서명을 건너뛴다 (서명되지 않은 빌드)
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      # 만든 앱을 이 OS 에서 실제로 실행해 본다. (창, 브리지, Codex 감지, PDF 렌더링)
+      - name: Smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a -s "-screen 0 1400x900x24" node scripts/smoke-desktop.cjs release/linux-unpacked/helpmydoc
+      - name: Smoke test (macOS)
+        if: runner.os == 'macOS'
+        run: node scripts/smoke-desktop.cjs "$(find release -path '*Contents/MacOS/HelpMyDoc' | head -1)"
+      - name: Smoke test (Windows, unpacked)
+        if: runner.os == 'Windows'
+        run: node scripts/smoke-desktop.cjs release/win-unpacked/HelpMyDoc.exe
+      - name: Smoke test (Windows, after installing with the installer)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem release -Filter "HelpMyDoc-Setup-*.exe" | Select-Object -First 1
+          Start-Process -FilePath $installer.FullName -ArgumentList "/S" -Wait
+          $exe = Join-Path $env:LOCALAPPDATA "Programs\HelpMyDoc\HelpMyDoc.exe"
+          if (-not (Test-Path $exe)) {
+            Get-ChildItem (Join-Path $env:LOCALAPPDATA "Programs") -ErrorAction SilentlyContinue | Format-Table Name
+            throw "설치된 실행 파일을 찾을 수 없습니다: $exe"
+          }
+          node scripts/smoke-desktop.cjs $exe
+      - name: Smoke test (Windows, portable exe)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $portable = Get-ChildItem release -Filter "*portable.exe" | Select-Object -First 1
+          node scripts/smoke-desktop.cjs $portable.FullName
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
           name: HelpMyDoc-${{ matrix.os }}
           path: |
