@@ -4,8 +4,10 @@
 import { app, BrowserWindow, session, shell } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import electronUpdater from "electron-updater";
 import { createAppServer } from "../server/app-server.mjs";
 import { fixPath } from "./path-fix.mjs";
+import { createUpdater } from "./updater.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -14,6 +16,18 @@ const PREFERRED_PORT = 47821;
 
 // 자식 프로세스(claude)가 찾을 수 있도록 서버를 띄우기 전에 PATH 를 보정한다.
 process.env.PATH = fixPath();
+
+// 자동 업데이트: 설치된(패키징된) 앱에서만 켜고, 개발 실행이나 HELPMYDOC_NO_UPDATE=1 이면 끈다.
+//  - 맥은 코드 서명이 있어야 자동 업데이트가 되므로(서명 없는 빌드는 불가) 켜지 않는다.
+//  - 리눅스는 AppImage 로 실행한 경우에만 가능하다.
+// (electron-updater 는 CommonJS 라 기본 내보내기로 불러온다)
+const updatable = process.platform === "win32" || (process.platform === "linux" && !!process.env.APPIMAGE);
+const updater = createUpdater({
+  autoUpdater: electronUpdater.autoUpdater,
+  currentVersion: app.getVersion(),
+  enabled: app.isPackaged && updatable && !process.env.HELPMYDOC_NO_UPDATE,
+  checkDelayMs: Number(process.env.HELPMYDOC_UPDATE_CHECK_DELAY_MS) || 10_000,
+});
 
 let server = null;
 let mainWindow = null;
@@ -29,7 +43,7 @@ function listen(port) {
 }
 
 async function startServer() {
-  server = createAppServer({ root: join(here, "..", "dist") });
+  server = createAppServer({ root: join(here, "..", "dist"), updater });
   try {
     return await listen(PREFERRED_PORT);
   } catch (e) {
@@ -84,6 +98,7 @@ if (!app.requestSingleInstanceLock()) {
     const port = await startServer();
     const origin = `http://127.0.0.1:${port}`;
     createWindow(origin);
+    updater.start();
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow(origin);
     });

@@ -23,13 +23,13 @@ let running = 0;
 /** 로그인 흐름은 한 번에 하나만 */
 let loginRunning = false;
 
-function json(res, status, body) {
+export function json(res, status, body) {
   res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
 }
 
 /** 다른 웹사이트가 localhost 브리지를 몰래 호출하는 것(CSRF, DNS rebinding)을 막는다. */
-function isTrustedRequest(req) {
+export function isTrustedRequest(req) {
   const host = String(req.headers.host ?? "").toLowerCase();
   const hostname = host.replace(/:\d+$/, "");
   if (!["localhost", "127.0.0.1", "[::1]"].includes(hostname)) return false;

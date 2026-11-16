@@ -735,3 +735,12 @@ a {
   border-radius: 8px;
   background: var(--user-bg);
 }
+
+.update-banner {
+  margin: 0;
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  background: color-mix(in srgb, #2ea043 14%, transparent);
+  border-color: color-mix(in srgb, #2ea043 40%, transparent);
+}

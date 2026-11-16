@@ -36,6 +36,18 @@ npm run desktop        # 빌드 후 바로 실행
 npm run desktop:dist   # 설치 파일 생성 → release/
 ```
 
+### 자동 업데이트 (윈도우)
+
+설치한 앱은 시작하고 잠시 뒤, 그리고 6시간마다 이 저장소의 **GitHub Releases**에서 새 버전을 확인합니다. 새 버전이 있으면 백그라운드로 받고, 받기가 끝나면 화면 위에 **"새 버전(v0.2.0)이 준비됐어요 [다시 시작해서 업데이트]"**가 나옵니다. 누르지 않아도 앱을 종료할 때 자동으로 설치됩니다. 대화 기록과 설정은 그대로 유지됩니다.
+
+- 윈도우(설치형)와 AppImage로 실행한 리눅스에서 동작합니다. **맥은 코드 서명이 있어야 자동 업데이트가 되어 지원하지 않습니다.** 포터블 exe는 직접 새 파일을 받아야 합니다.
+- 끄려면 환경변수 `HELPMYDOC_NO_UPDATE=1`로 앱을 실행하세요. 개발 실행(`npm run desktop`)에서는 항상 꺼져 있습니다.
+- **새 버전 내기(관리자)**: `package.json`의 `version`을 올리고 커밋한 뒤 태그를 푸시하면 GitHub Actions가 3개 OS 설치 파일과 업데이트 정보(`latest*.yml`)를 만들어 Release에 올립니다.
+  ```bash
+  git tag v0.1.1 && git push origin v0.1.1
+  ```
+- 서명이 없으면 첫 설치 때 SmartScreen 경고가 뜹니다. 윈도우 서명은 오픈소스 무료 서명([SignPath Foundation](https://about.signpath.io/product/open-source), 승인 필요) 또는 유료(Azure Artifact Signing 월 9.99달러 등)로 나중에 붙일 수 있습니다.
+
 ### 설치 파일(.exe) 만들기
 
 **윈도우에서** `npm run desktop:dist`를 실행하면 `release/` 폴더에 두 가지가 만들어집니다.

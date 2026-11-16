@@ -137,7 +137,12 @@ async function httpOnlySmoke({ userData, env }) {
 
   // 윈도우의 PATH 변수 이름은 `Path` 일 수 있다. 같은 이름으로 덧붙여야 중복 키가 생기지 않는다.
   const pathKey = Object.keys(process.env).find((k) => k.toLowerCase() === "path") ?? "PATH";
-  const appEnv = { ...process.env, [pathKey]: shimDir + delimiter + (process.env[pathKey] ?? "") };
+  // 스모크 테스트는 GitHub 로 업데이트를 확인하지 않는다.
+  const appEnv = {
+    ...process.env,
+    [pathKey]: shimDir + delimiter + (process.env[pathKey] ?? ""),
+    HELPMYDOC_NO_UPDATE: "1",
+  };
   if (httpOnly) return httpOnlySmoke({ userData, env: appEnv });
   const app = await _electron.launch({
     executablePath: exe,

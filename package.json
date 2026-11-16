@@ -92,6 +92,16 @@
     },
     "portable": {
       "artifactName": "${productName}-${version}-portable.${ext}"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "peakhhok",
+        "repo": "HelpMyDoc"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   }
 }

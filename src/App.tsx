@@ -4,6 +4,7 @@ import { PdfViewer, type PdfViewerHandle } from "./components/PdfViewer";
 import { ChatPanel } from "./components/ChatPanel";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { SetupScreen } from "./components/SetupScreen";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { fetchBridgeStatus, type BridgeStatus, type CliId } from "./lib/bridgeClient";
 import { sha256Hex } from "./lib/docId";
 import { loadDoc, updateDoc } from "./lib/docStore";
@@ -303,6 +304,8 @@ export default function App() {
             )}
         </button>
       </header>
+
+      <UpdateBanner />
 
       <main className="split" style={{ gridTemplateColumns: `1fr 6px ${chatWidth}px` }}>
         <section className="left">

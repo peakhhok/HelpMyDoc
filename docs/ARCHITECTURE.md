@@ -29,29 +29,32 @@ HelpMyDoc은 **"AI가 지금 사용자가 보고 있는 페이지를 안다"** �
 
 ## 모듈 지도
 
-| 경로                                    | 책임                                                                                          | pdf.js 의존 | 테스트 |
-| --------------------------------------- | --------------------------------------------------------------------------------------------- | :---------: | :----: |
-| `src/lib/pdf.ts`                        | pdf.js 로딩(한글 cMap 포함), 페이지 텍스트 추출·캐시                                          |      ✔      |   –    |
-| `src/lib/context.ts`                    | 현재 페이지 주변 텍스트 → 프롬프트 조립 (주입된 함수만 사용)                                  |      ✘      |   ✔    |
-| `src/lib/anthropicApi.ts`               | Anthropic Messages API 스트리밍, 시스템 프롬프트                                              |      ✘      |   ✔    |
-| `src/lib/bridgeClient.ts`               | 로컬 브리지 상태 확인·스트리밍 클라이언트                                                     |      ✘      |   ✔    |
-| `src/lib/providers/`                    | `Provider` 인터페이스, 레지스트리, 구현체                                                     |      ✘      |   ✔    |
-| `src/lib/openaiApi.ts` · `geminiApi.ts` | OpenAI·Gemini 스트리밍 호출과 모델 목록 조회(모델 이름을 앱에 고정하지 않음)                  |      ✘      |   ✔    |
-| `src/lib/sse.ts`                        | SSE `data:` 줄 읽기(청크 경계·CRLF·[DONE] 처리)                                               |      ✘      |   ✔    |
-| `src/components/ProviderSwitcher.tsx`   | 채팅창 위 연결 전환 목록(준비 상태 ●/○), 준비 안 된 연결은 설정으로                           |      ✘      |   –    |
-| `server/adapters.mjs`                   | CLI 어댑터: 인자 구성, 상태 확인, 출력 해석(Claude Code·Codex)                                |      ✘      |   ✔    |
-| `src/lib/usage.ts`                      | 토큰·구독 한도 표시 로직(퍼센트, 남은 시간, 경고 단계), 마지막 한도 값 저장                   |      ✘      |   ✔    |
-| `src/components/LimitsBadge.tsx`        | 채팅창 머리말의 구독 한도 사용률 표시                                                         |      ✘      |   –    |
-| `src/lib/setup.ts`                      | 브리지 상태 → 시작 화면 단계 판단(연결/설치/로그인/준비), 인증 방식 분류, OS별 공식 설치 명령 |      ✘      |   ✔    |
-| `src/components/SetupScreen.tsx`        | 시작 화면: 연결 방식 선택 + 단계별 점검 + 자동 재확인                                         |      ✘      |   –    |
-| `src/lib/docStore.ts`                   | 문서별 대화·마지막 페이지 저장(IndexedDB), 사용 불가 환경에서는 no-op                         |      ✘      |   ✔    |
-| `src/lib/docId.ts`                      | 파일 내용 SHA-256 → 문서 식별자                                                               |      ✘      |   ✔    |
-| `src/lib/history.ts`                    | 이전 대화 길이 제한, 답변 속 `p.N` → 페이지 링크                                              |      ✘      |   ✔    |
-| `src/lib/settings.ts`                   | 설정 저장(localStorage), 모델 목록                                                            |      ✘      |   ✔    |
-| `src/components/PdfViewer.tsx`          | 가상 렌더링(보이는 쪽만 그림), 현재 페이지 감지, 텍스트 레이어                                |      ✔      |   –    |
-| `src/components/ChatPanel.tsx`          | 채팅 UI, 중지/오류 처리                                                                       |      ✘      |   –    |
-| `server/bridge.mjs`                     | `claude -p` 실행 브리지 (127.0.0.1 전용)                                                      |      ✘      |   ✔    |
-| `bin/helpmydoc.mjs`                     | `dist/` + 브리지를 함께 서비스하는 CLI (`npm start`)                                          |      ✘      |   –    |
+| 경로                                           | 책임                                                                                          | pdf.js 의존 | 테스트 |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------- | :---------: | :----: |
+| `src/lib/pdf.ts`                               | pdf.js 로딩(한글 cMap 포함), 페이지 텍스트 추출·캐시                                          |      ✔      |   –    |
+| `src/lib/context.ts`                           | 현재 페이지 주변 텍스트 → 프롬프트 조립 (주입된 함수만 사용)                                  |      ✘      |   ✔    |
+| `src/lib/anthropicApi.ts`                      | Anthropic Messages API 스트리밍, 시스템 프롬프트                                              |      ✘      |   ✔    |
+| `src/lib/bridgeClient.ts`                      | 로컬 브리지 상태 확인·스트리밍 클라이언트                                                     |      ✘      |   ✔    |
+| `src/lib/providers/`                           | `Provider` 인터페이스, 레지스트리, 구현체                                                     |      ✘      |   ✔    |
+| `src/lib/openaiApi.ts` · `geminiApi.ts`        | OpenAI·Gemini 스트리밍 호출과 모델 목록 조회(모델 이름을 앱에 고정하지 않음)                  |      ✘      |   ✔    |
+| `src/lib/sse.ts`                               | SSE `data:` 줄 읽기(청크 경계·CRLF·[DONE] 처리)                                               |      ✘      |   ✔    |
+| `src/components/ProviderSwitcher.tsx`          | 채팅창 위 연결 전환 목록(준비 상태 ●/○), 준비 안 된 연결은 설정으로                           |      ✘      |   –    |
+| `server/adapters.mjs`                          | CLI 어댑터: 인자 구성, 상태 확인, 출력 해석(Claude Code·Codex)                                |      ✘      |   ✔    |
+| `electron/updater.mjs`                         | 자동 업데이트 상태 관리(확인→받는 중→준비됨→설치), electron-updater 를 주입받아 테스트        |      ✘      |   ✔    |
+| `server/app-api.mjs`                           | 데스크톱 앱 전용 API: 업데이트 상태 조회·설치 (`/api/app/…`, Host/Origin 검사)                |      ✘      |   ✔    |
+| `src/lib/updateClient.ts` · `UpdateBanner.tsx` | 새 버전 알림 배너 (API 가 없는 브라우저 버전에서는 숨김)                                      |      ✘      |   ✔    |
+| `src/lib/usage.ts`                             | 토큰·구독 한도 표시 로직(퍼센트, 남은 시간, 경고 단계), 마지막 한도 값 저장                   |      ✘      |   ✔    |
+| `src/components/LimitsBadge.tsx`               | 채팅창 머리말의 구독 한도 사용률 표시                                                         |      ✘      |   –    |
+| `src/lib/setup.ts`                             | 브리지 상태 → 시작 화면 단계 판단(연결/설치/로그인/준비), 인증 방식 분류, OS별 공식 설치 명령 |      ✘      |   ✔    |
+| `src/components/SetupScreen.tsx`               | 시작 화면: 연결 방식 선택 + 단계별 점검 + 자동 재확인                                         |      ✘      |   –    |
+| `src/lib/docStore.ts`                          | 문서별 대화·마지막 페이지 저장(IndexedDB), 사용 불가 환경에서는 no-op                         |      ✘      |   ✔    |
+| `src/lib/docId.ts`                             | 파일 내용 SHA-256 → 문서 식별자                                                               |      ✘      |   ✔    |
+| `src/lib/history.ts`                           | 이전 대화 길이 제한, 답변 속 `p.N` → 페이지 링크                                              |      ✘      |   ✔    |
+| `src/lib/settings.ts`                          | 설정 저장(localStorage), 모델 목록                                                            |      ✘      |   ✔    |
+| `src/components/PdfViewer.tsx`                 | 가상 렌더링(보이는 쪽만 그림), 현재 페이지 감지, 텍스트 레이어                                |      ✔      |   –    |
+| `src/components/ChatPanel.tsx`                 | 채팅 UI, 중지/오류 처리                                                                       |      ✘      |   –    |
+| `server/bridge.mjs`                            | `claude -p` 실행 브리지 (127.0.0.1 전용)                                                      |      ✘      |   ✔    |
+| `bin/helpmydoc.mjs`                            | `dist/` + 브리지를 함께 서비스하는 CLI (`npm start`)                                          |      ✘      |   –    |
 
 ## 확장 지점
 
@@ -84,6 +87,8 @@ HelpMyDoc은 **"AI가 지금 사용자가 보고 있는 페이지를 안다"** �
 - **CLI 어댑터**: 공식 CLI마다 다른 부분(인자, 로그인 확인, 출력 형식)은 어댑터 한 곳에 두고, 브리지는 보안 검사·프로세스 관리·스트리밍만 맡는다. 새 CLI를 더하려면 어댑터를 추가하면 된다.
 - **Codex는 실험 기능, 기본 꺼짐**: 약관 허용 여부가 불확실하고 도구를 완전히 끌 수 없어(읽기 전용 샌드박스 + 지침 + `--ephemeral` + 사용자 설정 무시로 제한) 사용자가 위험 안내에 동의한 뒤에만 실행한다. 모델이 도구를 쓰려 하면 답변 아래에 알린다. 윈도우의 npm 래퍼(`codex.cmd`)는 셸 없이 실행할 수 없어 옆의 JS 진입점을 직접 실행한다.
 - **Gemini 구독 로그인은 지원하지 않는다**: Google 약관이 서드파티 도구의 접근을 금지하고 불이익이 사용자 계정에 가기 때문이다. API 키 방식만 지원한다.
+- **자동 업데이트는 로컬 서버 API 로 화면과 잇는다**: 창에 preload/IPC 를 추가하지 않고(공격 면 최소화) 이미 있는 로컬 서버에 `/api/app/update` 를 두었다. 브라우저 버전에는 이 경로가 없어 배너가 보이지 않는다. 설치 요청(`POST …/install`)은 업데이트가 _준비됨_ 일 때만 받고 Host/Origin 검사를 거친다.
+- **업데이트 출처와 신뢰**: GitHub Releases(HTTPS)의 `latest*.yml` 에 적힌 sha512 로 내려받은 파일의 무결성을 확인한다. 코드 서명이 없으므로 서명 검증은 하지 않는다(electron-updater 는 게시자 이름이 없으면 건너뜀). 즉 신뢰의 기준은 이 저장소의 쓰기 권한이다. 윈도우와 AppImage 리눅스만 켜고, 서명이 없는 맥은 켜지 않는다.
 - **서버 없음 (BYOK)**: 문서와 API 키가 개발자 서버를 거치지 않는다. 운영 비용·개인정보 부담이 없고 오픈소스로 배포하기 쉽다.
 - **데스크톱은 Electron + 같은 로컬 서버**: 브리지(Node)를 그대로 재사용하고 브라우저 버전과 코드가 하나다. 창에는 `nodeIntegration` 없이 `http://127.0.0.1:<고정 포트>`를 로드한다. 포트를 고정하는 이유는 localStorage(설정)가 포트별로 분리되기 때문이다. (크기가 크고 로컬 포트가 열린다는 단점이 있어, 필요해지면 IPC 방식이나 Tauri로 옮길 수 있다.)
 - **보이는 쪽만 렌더링**: 500쪽 문서도 DOM·메모리가 일정하다. 현재 페이지는 이분 탐색으로 계산해 스크롤 중에도 가볍다.

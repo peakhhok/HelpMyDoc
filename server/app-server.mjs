@@ -3,6 +3,7 @@
 import http from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, sep } from "node:path";
+import { appApi } from "./app-api.mjs";
 import { claudeCodeBridge } from "./bridge.mjs";
 
 const MIME = {
@@ -36,8 +37,14 @@ export function createStaticHandler(root) {
   };
 }
 
-/** root: 빌드 결과(dist) 폴더. 호출한 쪽에서 listen 한다. (항상 127.0.0.1 에만 바인딩할 것) */
-export function createAppServer({ root }) {
+/**
+ * root: 빌드 결과(dist) 폴더. 호출한 쪽에서 listen 한다. (항상 127.0.0.1 에만 바인딩할 것)
+ * updater: 데스크톱 앱에서만 넘긴다. 있으면 자동 업데이트 API(/api/app/…)가 열린다.
+ *
+ * @param {{ root: string, updater?: { getState: () => object, install: () => boolean } }} opts
+ */
+export function createAppServer({ root, updater }) {
   const serveStatic = createStaticHandler(root);
-  return http.createServer((req, res) => claudeCodeBridge(req, res, () => serveStatic(req, res)));
+  const api = updater ? appApi(updater) : (_req, _res, next) => next();
+  return http.createServer((req, res) => claudeCodeBridge(req, res, () => api(req, res, () => serveStatic(req, res))));
 }
