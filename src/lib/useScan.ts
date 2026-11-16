@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PDFDocumentProxy } from "pdfjs-dist";
-import { getPageText } from "./pdf";
+import type { DocSource } from "./docSource";
 import { getProvider } from "./providers";
 import {
   buildScanPrompt,
@@ -18,7 +17,7 @@ import type { Settings } from "./settings";
 import type { UsageLimits } from "./usage";
 
 interface Options {
-  doc: PDFDocumentProxy | null;
+  doc: DocSource | null;
   fileName: string;
   settings: Settings;
   /** 지금 AI 를 쓸 수 없다면 그 이유 (null 이면 사용 가능) */
@@ -62,7 +61,7 @@ export function useScan({ doc, fileName, settings, unavailable, scan, changeScan
     const task = (async () => {
       const out: number[] = [];
       for (let p = 1; p <= doc.numPages; p++) {
-        out.push((await getPageText(doc, p)).length);
+        out.push((await doc.getText(p)).length);
         if (p % 10 === 0 || p === doc.numPages) setAnalyzing({ done: p, total: doc.numPages });
       }
       setPageChars(out);
@@ -98,7 +97,7 @@ export function useScan({ doc, fileName, settings, unavailable, scan, changeScan
         signal: ac.signal,
         buildPrompt: async (chunk) => {
           const pageTexts: Array<{ page: number; text: string }> = [];
-          for (let p = chunk.from; p <= chunk.to; p++) pageTexts.push({ page: p, text: await getPageText(doc, p) });
+          for (let p = chunk.from; p <= chunk.to; p++) pageTexts.push({ page: p, text: await doc.getText(p) });
           return buildScanPrompt({ fileName, numPages: doc.numPages, chunk, pageTexts });
         },
         ask: async (prompt, signal) => {

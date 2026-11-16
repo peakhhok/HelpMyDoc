@@ -8,7 +8,7 @@
 //  3. 가짜 codex 를 PATH 에 두고 Codex 를 감지한다 — 윈도우에서는 npm 래퍼(codex.cmd)를 셸 없이 실행하는 경로를 검증
 //  4. PDF 를 열면 pdf.js 워커·글꼴 자산이 패키지 안에서 로드되어 렌더링되고 텍스트 레이어가 나온다
 const { _electron } = require("playwright-core");
-const { chmodSync, mkdirSync, mkdtempSync, writeFileSync } = require("node:fs");
+const { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { delimiter, join } = require("node:path");
 
@@ -206,6 +206,19 @@ async function httpOnlySmoke({ userData, env }) {
       timeout: 5_000,
     });
     check("Ctrl+0 으로 기본 배율 복귀", (await zoomText()) === before);
+
+    // PowerPoint(.pptx) 도 열린다: 슬라이드가 그려지고 글이 실제 글자로 들어간다
+    await win.setInputFiles('input[type="file"]', {
+      name: "lecture.pptx",
+      mimeType: "application/octet-stream",
+      buffer: readFileSync(join(__dirname, "..", "src", "lib", "pptx", "fixtures", "lecture.pptx")),
+    });
+    await win.waitForSelector(".pp-slide", { timeout: 20_000 });
+    check("PowerPoint(.pptx) 슬라이드 렌더링", true);
+    check(
+      "슬라이드 글이 글자로 들어 있음",
+      (await win.locator(".pp-slide").first().innerText()).includes("AWS 보안 기초"),
+    );
     check("화면 오류 없음", errors.length === 0, errors.join(" | "));
   } finally {
     await app.close().catch(() => {});

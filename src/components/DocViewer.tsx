@@ -1,8 +1,16 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
-import "../lib/pdfjsGlobal";
-import { TextLayerBuilder } from "pdfjs-dist/web/pdf_viewer.mjs";
-import type { PDFDocumentProxy } from "pdfjs-dist";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import "pdfjs-dist/web/pdf_viewer.css";
+import type { DocSource } from "../lib/docSource";
+import { TEXT_LAYER_ATTR, createRenderer, type PageRenderer, type Size } from "../lib/renderers";
 import {
   HL_COLORS,
   HL_CSS,
@@ -15,7 +23,7 @@ import {
   type HlColor,
 } from "../lib/annotations";
 
-export interface PdfViewerHandle {
+export interface DocViewerHandle {
   goTo: (page: number) => void;
   /** 지금 선택한 글자를 칠한다. 선택이 없으면 false */
   highlightSelection: (color: HlColor) => boolean;
@@ -24,7 +32,7 @@ export interface PdfViewerHandle {
 export type NewHighlight = Pick<Highlight, "page" | "color" | "rects" | "text">;
 
 interface Props {
-  doc: PDFDocumentProxy;
+  doc: DocSource;
   scale: number;
   onPageChange: (page: number) => void;
   onSelect: (text: string) => void;
@@ -40,14 +48,30 @@ interface Props {
 
 const NO_HIGHLIGHTS: Highlight[] = [];
 
-interface Size {
-  w: number;
-  h: number;
+/**
+ * 선택 영역에 들어 있는 "글자"의 화면 사각형들. 도형·칸 같은 상자가 통째로 선택에 들어 있어도
+ * 그 상자 전체를 칠하지 않도록, 글 노드(텍스트)의 사각형만 모은다.
+ */
+function textRects(layer: Element, range: Range): DOMRect[] {
+  const out: DOMRect[] = [];
+  const walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const node = n as Text;
+    if (!range.intersectsNode(node)) continue;
+    const start = node === range.startContainer ? range.startOffset : 0;
+    const end = node === range.endContainer ? range.endOffset : node.length;
+    if (end <= start) continue;
+    const r = document.createRange();
+    r.setStart(node, start);
+    r.setEnd(node, end);
+    out.push(...Array.from(r.getClientRects()));
+  }
+  return out;
 }
 
 /** 500쪽짜리도 버벅이지 않도록, 화면 근처의 페이지만 실제로 그린다. */
 const PageView = ({
-  doc,
+  renderer,
   pageNumber,
   scale,
   baseSize,
@@ -55,7 +79,7 @@ const PageView = ({
   register,
   highlights,
 }: {
-  doc: PDFDocumentProxy;
+  renderer: PageRenderer;
   pageNumber: number;
   scale: number;
   baseSize: Size;
@@ -88,50 +112,18 @@ const PageView = ({
     if (!near) return;
     const holder = contentRef.current;
     if (!holder) return;
-    let cancelled = false;
-    let renderTask: { cancel: () => void } | null = null;
-    let textLayer: TextLayerBuilder | null = null;
-
-    (async () => {
-      const page = await doc.getPage(pageNumber);
-      if (cancelled) return;
-      const base = page.getViewport({ scale: 1 });
-      setSize({ w: base.width, h: base.height });
-      const viewport = page.getViewport({ scale });
-      const dpr = window.devicePixelRatio || 1;
-
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.floor(viewport.width * dpr);
-      canvas.height = Math.floor(viewport.height * dpr);
-      canvas.style.width = `${viewport.width}px`;
-      canvas.style.height = `${viewport.height}px`;
-
-      const task = page.render({
-        canvas,
-        viewport,
-        transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined,
-      });
-      renderTask = task;
-      try {
-        await task.promise;
-      } catch {
-        return; // 취소됨
-      }
-      if (cancelled) return;
-      // pdf.js 의 글자 레이어(TextLayerBuilder)는 글자를 드래그해서 고를 때 선택이 엉뚱한 곳(문서 끝 등)까지
-      // 번지지 않게 해 주는 보조 요소(endOfContent)와 선택 처리를 함께 만들어 준다.
-      textLayer = new TextLayerBuilder({ pdfPage: page });
-      holder.replaceChildren(canvas, textLayer.div);
-      textLayer.render({ viewport } as Parameters<TextLayerBuilder["render"]>[0]).catch(() => {});
-    })();
-
+    const ac = new AbortController();
+    renderer
+      .render(pageNumber, holder, scale, ac.signal)
+      .then((actual) => {
+        if (actual && !ac.signal.aborted) setSize(actual);
+      })
+      .catch(() => {});
     return () => {
-      cancelled = true;
-      renderTask?.cancel();
-      textLayer?.cancel();
+      ac.abort();
       holder.replaceChildren();
     };
-  }, [near, doc, pageNumber, scale]);
+  }, [near, renderer, pageNumber, scale]);
 
   const s = size ?? baseSize;
   return (
@@ -167,7 +159,7 @@ const PageView = ({
   );
 };
 
-export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
+export const DocViewer = forwardRef<DocViewerHandle, Props>(function DocViewer(
   {
     doc,
     scale,
@@ -190,17 +182,16 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
   const pendingInitial = useRef((initialPage ?? 1) > 1);
   const ratio = useRef(0);
 
+  const renderer = useMemo(() => createRenderer(doc), [doc]);
   useEffect(() => {
     let alive = true;
-    doc.getPage(1).then((p) => {
-      if (!alive) return;
-      const v = p.getViewport({ scale: 1 });
-      setBaseSize({ w: v.width, h: v.height });
+    renderer.baseSize().then((size) => {
+      if (alive) setBaseSize(size);
     });
     return () => {
       alive = false;
     };
-  }, [doc]);
+  }, [renderer]);
 
   const register = useCallback((n: number, el: HTMLDivElement | null) => {
     pageEls.current[n] = el;
@@ -267,7 +258,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
       let added = false;
       for (let p = Math.min(from, to); p <= Math.max(from, to); p++) {
         const pageEl = pageEls.current[p];
-        const layer = pageEl?.querySelector<HTMLElement>(".textLayer");
+        const layer = pageEl?.querySelector<HTMLElement>(`[${TEXT_LAYER_ATTR}]`);
         if (!pageEl || !layer) continue;
         // 이 쪽의 글자 레이어와 선택 영역이 겹치는 부분만 잘라낸다.
         const part = document.createRange();
@@ -277,7 +268,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
         const text = part.toString().replace(/\s+/g, " ").trim();
         if (!text) continue;
         const box = pageEl.getBoundingClientRect();
-        const rects = mergeRects(toRelativeRects(Array.from(part.getClientRects()) as Box[], box));
+        const rects = mergeRects(toRelativeRects(textRects(layer, part) as Box[], box));
         if (rects.length === 0) continue;
         onAddHighlight({ page: p, color, rects, text });
         added = true;
@@ -375,7 +366,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
         Array.from({ length: doc.numPages }, (_, i) => (
           <PageView
             key={i + 1}
-            doc={doc}
+            renderer={renderer}
             pageNumber={i + 1}
             scale={scale}
             baseSize={baseSize}

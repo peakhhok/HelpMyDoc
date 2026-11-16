@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { PDFDocumentProxy } from "pdfjs-dist";
+import type { DocSource } from "../lib/docSource";
 import { ClaudeError } from "../lib/anthropicApi";
 import { LimitsBadge } from "./LimitsBadge";
 import { ProviderSwitcher } from "./ProviderSwitcher";
@@ -12,7 +12,6 @@ import { buildOverview, digestMap, type ScanData } from "../lib/scan";
 import { bestExcerpt, findRelated, type PageIndex } from "../lib/related";
 import { updateDoc } from "../lib/docStore";
 import { linkifyPages, trimHistory, type UiMessage } from "../lib/history";
-import { getPageText } from "../lib/pdf";
 import { getProvider } from "../lib/providers";
 import type { ProviderId } from "../lib/settings";
 import { evaluateSetup } from "../lib/setup";
@@ -20,7 +19,7 @@ import type { Settings } from "../lib/settings";
 import { formatTokens, type UsageLimits } from "../lib/usage";
 
 interface Props {
-  doc: PDFDocumentProxy | null;
+  doc: DocSource | null;
   fileName: string;
   currentPage: number;
   selection: string;
@@ -153,11 +152,7 @@ export function ChatPanel({
           const digests = digestMap(scan);
           const found = findRelated(
             index,
-            [
-              { text: await getPageText(doc, currentPage) },
-              { text: selection, weight: 3 },
-              { text: question, weight: 3 },
-            ],
+            [{ text: await doc.getText(currentPage) }, { text: selection, weight: 3 }, { text: question, weight: 3 }],
             { exclude: (p) => p >= from && p <= to, k: 4 },
           );
           related = found.map((r) => ({
@@ -173,7 +168,7 @@ export function ChatPanel({
         overview: settings.useOverview ? buildOverview(scan, currentPage) : "",
         notes: memos,
         numPages: doc.numPages,
-        getPageText: (p) => getPageText(doc, p),
+        getPageText: (p) => doc.getText(p),
         fileName,
         currentPage,
         radius: settings.radius,

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PDFDocumentProxy } from "pdfjs-dist";
-import { PdfViewer, type NewHighlight, type PdfViewerHandle } from "./components/PdfViewer";
+import { DocViewer, type DocViewerHandle, type NewHighlight } from "./components/DocViewer";
 import { ChatPanel } from "./components/ChatPanel";
 import { NotesPanel } from "./components/NotesPanel";
 import { ScanDialog } from "./components/ScanDialog";
@@ -24,6 +23,7 @@ import { sanitizeScan, type ScanData } from "./lib/scan";
 import { useDocIndex } from "./lib/useDocIndex";
 import { useScan } from "./lib/useScan";
 import type { UiMessage } from "./lib/history";
+import { pdfSource, pptxSource, type DocSource } from "./lib/docSource";
 import { openPdf } from "./lib/pdf";
 import { getProvider } from "./lib/providers";
 import { loadSettings, saveSettings, type ProviderId, type Settings } from "./lib/settings";
@@ -35,7 +35,7 @@ const MAX_SCALE = 3;
 const DEFAULT_SCALE = 1.25;
 
 export default function App() {
-  const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
+  const [doc, setDoc] = useState<DocSource | null>(null);
   const [fileName, setFileName] = useState("");
   /** 문서 지문(저장의 키)과, 저장돼 있던 대화·마지막 페이지 */
   const [docId, setDocId] = useState("");
@@ -75,12 +75,12 @@ export default function App() {
   const [skipGate, setSkipGate] = useState(false);
   const [chatWidth, setChatWidth] = useState(440);
   const [dragOver, setDragOver] = useState(false);
-  const docRef = useRef<PDFDocumentProxy | null>(null);
+  const docRef = useRef<DocSource | null>(null);
   // 드래그&드롭 핸들러는 처음 렌더의 openFile 을 잡고 있으므로 최신 설정은 ref 로 읽는다.
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const hasRecord = useRef(false);
-  const viewerRef = useRef<PdfViewerHandle>(null);
+  const viewerRef = useRef<DocViewerHandle>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const leftRef = useRef<HTMLElement>(null);
 
@@ -257,8 +257,15 @@ export default function App() {
 
   const openFile = async (file: File | undefined) => {
     if (!file) return;
-    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-      setLoadError("PDF 파일만 열 수 있습니다.");
+    const lower = file.name.toLowerCase();
+    const isPdf = file.type === "application/pdf" || lower.endsWith(".pdf");
+    const isPptx = lower.endsWith(".pptx");
+    if (!isPdf && !isPptx) {
+      setLoadError(
+        lower.endsWith(".ppt")
+          ? "옛 PowerPoint(.ppt)는 열 수 없어요. PowerPoint에서 .pptx 또는 PDF로 저장해서 열어 주세요."
+          : "PDF 또는 PowerPoint(.pptx) 파일만 열 수 있습니다.",
+      );
       return;
     }
     try {
@@ -267,13 +274,13 @@ export default function App() {
       // 이름이 아니라 파일 내용의 해시로 같은 문서인지 알아본다.
       // (pdf.js 는 버퍼를 워커로 넘겨 쓸 수 없게 만들 수 있으므로 해시를 먼저 계산한다)
       const hash = await sha256Hex(buffer);
-      const next = await openPdf(buffer);
-      const id = hash ?? next.fingerprints[0] ?? "";
+      const next = isPptx ? pptxSource(buffer, hash ?? file.name) : pdfSource(await openPdf(buffer));
+      const id = hash ?? next.key;
       const record = settingsRef.current.saveHistory && id ? await loadDoc(id) : undefined;
       const lastPage = Math.min(Math.max(1, record?.lastPage ?? 1), next.numPages);
       hasRecord.current = !!record;
       flushAnn();
-      docRef.current?.loadingTask.destroy();
+      docRef.current?.destroy();
       docRef.current = next;
       // 한 번에 반영해야 채팅창이 저장된 대화로 시작하고 뷰어가 저장된 페이지로 열린다.
       setDoc(next);
@@ -396,7 +403,7 @@ export default function App() {
         <input
           ref={fileInput}
           type="file"
-          accept="application/pdf,.pdf"
+          accept="application/pdf,.pdf,.pptx"
           hidden
           onChange={(e) => {
             openFile(e.target.files?.[0]);
@@ -483,8 +490,8 @@ export default function App() {
       <main className="split" style={{ gridTemplateColumns: `1fr 6px ${chatWidth}px` }}>
         <section className="left" ref={leftRef}>
           {doc ? (
-            <PdfViewer
-              key={fileName + doc.fingerprints[0]}
+            <DocViewer
+              key={fileName + doc.key}
               ref={viewerRef}
               doc={doc}
               initialPage={restored.lastPage}
@@ -500,7 +507,7 @@ export default function App() {
           ) : (
             <div className="dropzone" onClick={() => fileInput.current?.click()}>
               <div className="big">📄</div>
-              <p>PDF 파일을 여기에 끌어다 놓거나 클릭해서 여세요</p>
+              <p>PDF 또는 PowerPoint(.pptx) 파일을 여기에 끌어다 놓거나 클릭해서 여세요</p>
               <p className="muted">파일은 서버에 업로드되지 않고 이 브라우저에서만 처리됩니다.</p>
               {loadError && <p className="error">{loadError}</p>}
             </div>
@@ -601,7 +608,7 @@ export default function App() {
           onClose={() => setShowScan(false)}
         />
       )}
-      {dragOver && <div className="drop-overlay">PDF를 놓아서 열기</div>}
+      {dragOver && <div className="drop-overlay">파일을 놓아서 열기</div>}
       {showSetup && (
         <SetupScreen
           mode={settings.onboarded ? "repair" : "first-run"}

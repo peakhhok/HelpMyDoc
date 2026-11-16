@@ -987,3 +987,15 @@ a {
   gap: 8px;
   font-weight: 400;
 }
+
+/* ---------- PowerPoint(.pptx) 슬라이드 ---------- */
+.pp-slide {
+  text-align: left;
+}
+.pp-bullet::before {
+  content: var(--mark);
+}
+.pp-text,
+.pp-text * {
+  user-select: text;
+}
