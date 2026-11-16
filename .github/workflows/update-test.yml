@@ -20,10 +20,10 @@ jobs:
       - name: Build 0.0.1 and 0.0.2 installers that update from a local server
         shell: pwsh
         run: |
-          node scripts/make-update-test-config.cjs http://127.0.0.1:8765/ release-old old.json
-          node scripts/make-update-test-config.cjs http://127.0.0.1:8765/ release-new new.json
-          npx electron-builder --win nsis --config old.json -c.extraMetadata.version=0.0.1 --publish never
-          npx electron-builder --win nsis --config new.json -c.extraMetadata.version=0.0.2 --publish never
+          node scripts/make-update-test-config.cjs http://127.0.0.1:8765/ release-old old.json 0.0.1
+          node scripts/make-update-test-config.cjs http://127.0.0.1:8765/ release-new new.json 0.0.2
+          npx electron-builder --win nsis --config old.json --publish never
+          npx electron-builder --win nsis --config new.json --publish never
           Get-ChildItem release-new | Format-Table Name, Length
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
