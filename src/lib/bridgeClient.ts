@@ -57,6 +57,7 @@ interface CliEvent {
   outputTokens?: number;
   fiveHour?: UsageLimits["fiveHour"];
   sevenDay?: UsageLimits["sevenDay"];
+  status?: UsageLimits["status"];
 }
 
 /** 브리지가 NDJSON 으로 보내 주는 응답을 읽는다. */
@@ -81,7 +82,8 @@ export async function streamCli(id: CliId, opts: StreamCliOptions): Promise<void
     if (evt.t === "text" && evt.text) opts.onText(evt.text);
     else if (evt.t === "usage")
       opts.onUsage?.({ inputTokens: evt.inputTokens ?? 0, outputTokens: evt.outputTokens ?? 0 });
-    else if (evt.t === "limits") opts.onLimits?.({ fiveHour: evt.fiveHour, sevenDay: evt.sevenDay });
+    else if (evt.t === "limits")
+      opts.onLimits?.({ fiveHour: evt.fiveHour, sevenDay: evt.sevenDay, status: evt.status });
     else if (evt.t === "notice" && evt.text) opts.onNotice?.(evt.text);
     else if (evt.t === "error") throw new ClaudeCodeError(evt.message ?? "연결 오류");
   }

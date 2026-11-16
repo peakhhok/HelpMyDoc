@@ -104,6 +104,23 @@ describe("streamClaudeCode", () => {
     expect(got.limits).toEqual([limits]);
   });
 
+  it("한도 상태(status)만 오는 옛 버전 이벤트도 그대로 전달한다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(ndjson([line({ t: "limits", status: "warning" }), line({ t: "done" })])),
+    );
+    const got: unknown[] = [];
+    await streamClaudeCode({
+      prompt: "p",
+      system: "s",
+      model: "",
+      signal: new AbortController().signal,
+      onText: () => {},
+      onLimits: (l) => got.push(l),
+    });
+    expect(got).toEqual([{ fiveHour: undefined, sevenDay: undefined, status: "warning" }]);
+  });
+
   it("콜백을 안 넘겨도 usage / limits 이벤트가 오류를 만들지 않는다", async () => {
     vi.stubGlobal(
       "fetch",

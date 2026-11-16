@@ -44,6 +44,9 @@ interface Props {
   /** 구독 한도 사용률 (Claude Code 방식에서 답변마다 갱신) */
   limits: UsageLimits | null;
   onLimits: (limits: UsageLimits) => void;
+  /** 답변을 받았는데 한도 정보가 하나도 오지 않았음 (옛 Claude Code 버전) */
+  limitsMissing: boolean;
+  onLimitsMissing: () => void;
 }
 
 const QUICK_PROMPTS = ["여기서 중요한 부분을 요약해줘", "이 페이지를 쉽게 설명해줘", "핵심 개념을 정리해줘"];
@@ -66,6 +69,8 @@ export function ChatPanel({
   onRecheckBridge,
   limits,
   onLimits,
+  limitsMissing,
+  onLimitsMissing,
 }: Props) {
   const [messages, setMessages] = useState<UiMessage[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -112,6 +117,7 @@ export function ChatPanel({
     const ac = new AbortController();
     abortRef.current = ac;
     const history = messages;
+    let sawLimits = false;
 
     try {
       const ctx = await buildPrompt({
@@ -136,7 +142,10 @@ export function ChatPanel({
         history: trimHistory(history.map(({ role, content }) => ({ role, content }))),
         prompt: ctx.prompt,
         signal: ac.signal,
-        onLimits,
+        onLimits: (l) => {
+          sawLimits = true;
+          onLimits(l);
+        },
         onNotice: (notice) =>
           setMessages((cur) => {
             const next = cur.slice();
@@ -160,6 +169,8 @@ export function ChatPanel({
             return next;
           }),
       });
+      // 답변이 끝났는데 한도 정보가 하나도 안 왔다면 알려 준다. (옛 Claude Code 는 보내지 않는다)
+      if (provider.id === "claude-code" && !sawLimits) onLimitsMissing();
     } catch (e) {
       const aborted = (e as Error).name === "AbortError";
       if (!aborted) {
@@ -187,7 +198,9 @@ export function ChatPanel({
       <div className="chat-head">
         <ProviderSwitcher env={env} onSwitch={onSwitchProvider} onNeedSetup={(id) => onOpenSettings(id)} />
         <span className="muted">{provider.describe(settings)}</span>
-        {provider.id === "claude-code" && <LimitsBadge limits={limits} />}
+        {provider.id === "claude-code" && (
+          <LimitsBadge limits={limits} missing={limitsMissing} version={bridge?.version?.split(" ")[0]} />
+        )}
         <span className="spacer" />
         {persist && (
           <span className="muted small-text" title="이 문서의 대화와 마지막으로 본 페이지가 이 PC에 저장됩니다">

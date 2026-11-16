@@ -19,6 +19,9 @@ export function stripAnsi(s) {
   return String(s).replace(/\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007]*\u0007/g, "");
 }
 
+/** Claude Code 의 한도 상태 값 → 화면용 */
+const LIMIT_STATUS = { allowed: "ok", allowed_warning: "warning", rejected: "rejected" };
+
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
 /** 한도 창 하나에서 사용률(0~1)과 초기화 시각(epoch 초)만 꺼낸다. 낯선 형식이면 undefined. */
@@ -95,10 +98,19 @@ export const claudeAdapter = {
         .join("");
     } else if (e.type === "rate_limit_event") {
       // 구독 한도 사용률(5시간/7일). 사용률과 초기화 시각만 전달하고 그 밖의 필드(세션 ID 등)는 버린다.
-      const w = e.rate_limit_info?.unifiedWindows;
-      const fiveHour = pickWindow(w?.five_hour);
-      const sevenDay = pickWindow(w?.seven_day);
-      if (fiveHour || sevenDay) out.push({ t: "limits", fiveHour, sevenDay });
+      const info = e.rate_limit_info;
+      const w = info?.unifiedWindows;
+      let fiveHour = pickWindow(w?.five_hour);
+      let sevenDay = pickWindow(w?.seven_day);
+      // 옛 버전(예: 2.1.220)은 unifiedWindows 없이 이벤트마다 창 하나(rateLimitType + utilization)만 알려준다.
+      if (!fiveHour && !sevenDay && info && typeof info.utilization === "number") {
+        const one = pickWindow({ utilization: info.utilization, resetsAt: info.resetsAt });
+        if (info.rateLimitType === "five_hour") fiveHour = one;
+        else if (info.rateLimitType === "seven_day") sevenDay = one;
+      }
+      // 사용률 숫자가 없는 버전도 한도 상태(정상/경고/초과)는 알 수 있다.
+      const status = LIMIT_STATUS[info?.status];
+      if (fiveHour || sevenDay || status) out.push({ t: "limits", fiveHour, sevenDay, status });
     } else if (e.type === "result") {
       if (e.is_error) state.failure = String(e.result ?? "Claude Code 오류");
       const u = e.usage;

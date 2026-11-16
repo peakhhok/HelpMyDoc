@@ -43,7 +43,16 @@ process.stdin.on("end", () => {
     emit({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: text.slice(5) } } });
   }
   emit({ type: "assistant", message: { content: [{ type: "text", text }] } });
-  if (mode !== "nolimits") {
+  const style = process.env.FAKE_LIMITS_STYLE;
+  if (mode !== "nolimits" && style === "old-single") {
+    emit({ type: "rate_limit_event", session_id: "SECRET-SESSION", rate_limit_info: { status: "allowed", rateLimitType: "five_hour", utilization: 0.62, resetsAt: 1794779400 } });
+  } else if (mode !== "nolimits" && style === "old-seven") {
+    emit({ type: "rate_limit_event", rate_limit_info: { status: "allowed", rateLimitType: "seven_day", utilization: 0.31, resetsAt: 1794769200 } });
+  } else if (mode !== "nolimits" && style === "old-status") {
+    emit({ type: "rate_limit_event", rate_limit_info: { status: "allowed_warning", rateLimitType: "five_hour", resetsAt: 1794779400 } });
+  } else if (mode !== "nolimits" && style === "unknown") {
+    emit({ type: "rate_limit_event", rate_limit_info: { status: "something_new" } });
+  } else if (mode !== "nolimits") {
     emit({ type: "rate_limit_event", session_id: "SECRET-SESSION", rate_limit_info: { status: "allowed", unifiedWindows: {
       five_hour: { utilization: 0.47, resetsAt: 1794779400, status: "allowed" },
       seven_day: { utilization: process.env.FAKE_PERCENT_SCALE ? 43 : 0.43, resetsAt: 1794769200 } } } });
@@ -242,11 +251,47 @@ describe.skipIf(process.platform === "win32")("claude code bridge", () => {
         t: "limits",
         fiveHour: { utilization: 0.47, resetsAt: 1794779400 },
         sevenDay: { utilization: 0.43, resetsAt: 1794769200 },
+        status: "ok",
       });
       expect(ev.find((e) => e.t === "usage")).toEqual({ t: "usage", inputTokens: 2 + 1337 + 2366, outputTokens: 9 });
       // 세션 ID, 비용은 화면에 필요 없으므로 내보내지 않는다
       expect(r.text).not.toContain("SECRET-SESSION");
       expect(r.text).not.toContain("0.123");
+    });
+
+    it("옛 버전(unifiedWindows 없음)은 창 하나짜리 이벤트를 읽는다", async () => {
+      const one = async (style: string) => {
+        process.env.FAKE_LIMITS_STYLE = style;
+        const ev = events((await chat({ prompt: "abc" })).text) as Array<Record<string, unknown>>;
+        return ev.find((e) => e.t === "limits");
+      };
+      try {
+        expect(await one("old-single")).toEqual({
+          t: "limits",
+          fiveHour: { utilization: 0.62, resetsAt: 1794779400 },
+          status: "ok",
+        });
+        expect(await one("old-seven")).toEqual({
+          t: "limits",
+          sevenDay: { utilization: 0.31, resetsAt: 1794769200 },
+          status: "ok",
+        });
+      } finally {
+        delete process.env.FAKE_LIMITS_STYLE;
+      }
+    });
+
+    it("사용률 숫자가 없는 버전은 한도 상태(정상/경고/초과)만 전달하고, 알 수 없는 값은 보내지 않는다", async () => {
+      try {
+        process.env.FAKE_LIMITS_STYLE = "old-status";
+        let ev = events((await chat({ prompt: "abc" })).text) as Array<Record<string, unknown>>;
+        expect(ev.find((e) => e.t === "limits")).toEqual({ t: "limits", status: "warning" });
+        process.env.FAKE_LIMITS_STYLE = "unknown";
+        ev = events((await chat({ prompt: "abc" })).text) as Array<Record<string, unknown>>;
+        expect(ev.some((e) => e.t === "limits")).toBe(false);
+      } finally {
+        delete process.env.FAKE_LIMITS_STYLE;
+      }
     });
 
     it("사용률이 퍼센트(0~100)로 오는 버전도 0~1 로 맞춘다", async () => {

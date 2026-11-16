@@ -39,6 +39,8 @@ export default function App() {
   /** 마지막으로 알려진 구독 한도 사용률 (이미 초기화된 창은 제외) */
   const [limits, setLimits] = useState<UsageLimits | null>(() => loadLimits());
   const limitsRef = useRef(limits);
+  /** 답변을 받았는데도 한도 정보가 오지 않음 (옛 Claude Code 버전) */
+  const [limitsMissing, setLimitsMissing] = useState(false);
   /** 시작 화면(연결 설정)을 사용자가 직접 열었음 */
   const [forceSetup, setForceSetup] = useState(false);
   /** 시작할 때 연결이 안 돼 있어 시작 화면을 띄운 뒤, 사용자가 닫을 때까지 유지 */
@@ -93,6 +95,7 @@ export default function App() {
     const merged = mergeLimits(limitsRef.current, next);
     limitsRef.current = merged;
     setLimits(merged);
+    setLimitsMissing(false);
     saveLimits(merged);
   }, []);
 
@@ -345,6 +348,8 @@ export default function App() {
           }}
           limits={limits}
           onLimits={onLimits}
+          limitsMissing={limitsMissing}
+          onLimitsMissing={() => setLimitsMissing(true)}
         />
       </main>
 

@@ -10,10 +10,15 @@ export interface LimitWindow {
   resetsAt?: number;
 }
 
+/** 구독 한도 상태. 사용률 숫자를 알려주지 않는 옛 버전도 이 값은 알려준다. */
+export type LimitStatus = "ok" | "warning" | "rejected";
+
 /** 구독 한도 사용률 (Claude Code 가 답변마다 알려준다) */
 export interface UsageLimits {
   fiveHour?: LimitWindow;
   sevenDay?: LimitWindow;
+  /** 한도 상태 (정상/경고/초과). 저장하지 않는 일시적인 값 */
+  status?: LimitStatus;
 }
 
 /** 1234 → "1.2k", 12345 → "12k", 1500000 → "1.5M" */
@@ -55,6 +60,7 @@ export function mergeLimits(prev: UsageLimits | null, next: UsageLimits): UsageL
   return {
     fiveHour: next.fiveHour ?? prev?.fiveHour,
     sevenDay: next.sevenDay ?? prev?.sevenDay,
+    status: next.status ?? prev?.status,
   };
 }
 

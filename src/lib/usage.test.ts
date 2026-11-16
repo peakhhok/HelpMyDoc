@@ -48,15 +48,23 @@ describe("formatRemaining", () => {
 });
 
 describe("mergeLimits", () => {
+  it("한도 상태(status)도 새 값이 있으면 갱신하고 없으면 유지한다", () => {
+    expect(mergeLimits(null, { status: "warning" }).status).toBe("warning");
+    expect(mergeLimits({ status: "warning" }, { fiveHour: { utilization: 0.1 } }).status).toBe("warning");
+    expect(mergeLimits({ status: "warning" }, { status: "ok" }).status).toBe("ok");
+  });
+
   it("새 값이 있는 창만 덮어쓰고 나머지는 유지한다", () => {
     const prev = { fiveHour: { utilization: 0.1 }, sevenDay: { utilization: 0.2 } };
     expect(mergeLimits(prev, { fiveHour: { utilization: 0.5 } })).toEqual({
       fiveHour: { utilization: 0.5 },
       sevenDay: { utilization: 0.2 },
+      status: undefined,
     });
     expect(mergeLimits(null, { sevenDay: { utilization: 0.3 } })).toEqual({
       fiveHour: undefined,
       sevenDay: { utilization: 0.3 },
+      status: undefined,
     });
   });
 });
