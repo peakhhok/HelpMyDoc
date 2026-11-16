@@ -17,6 +17,7 @@ import { dropExpired, loadLimits, mergeLimits, saveLimits, type UsageLimits } fr
 
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 3;
+const DEFAULT_SCALE = 1.25;
 
 export default function App() {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
@@ -27,7 +28,7 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageInput, setPageInput] = useState("1");
-  const [scale, setScale] = useState(1.25);
+  const [scale, setScale] = useState(DEFAULT_SCALE);
   const [selection, setSelection] = useState("");
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [showSettings, setShowSettings] = useState(false);
@@ -59,6 +60,7 @@ export default function App() {
   const hasRecord = useRef(false);
   const viewerRef = useRef<PdfViewerHandle>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const leftRef = useRef<HTMLElement>(null);
 
   const refreshBridge = useCallback((silent?: boolean) => {
     if (!silent) setBridge(null);
@@ -234,6 +236,32 @@ export default function App() {
   const zoom = (d: number) =>
     setScale((s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.round((s + d) * 100) / 100)));
 
+  // Ctrl+마우스 휠(터치패드 핀치 포함)과 Ctrl +/-/0 으로 확대·축소한다. 화면 전체가 아니라 PDF 영역만 바뀐다.
+  useEffect(() => {
+    const el = leftRef.current;
+    if (!el || !doc) return;
+    const clamp = (v: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.round(v * 100) / 100));
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      setScale((s) => clamp(s * Math.exp(-e.deltaY * 0.002)));
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      if (e.key === "+" || e.key === "=") setScale((s) => clamp(s + 0.1));
+      else if (e.key === "-" || e.key === "_") setScale((s) => clamp(s - 0.1));
+      else if (e.key === "0") setScale(DEFAULT_SCALE);
+      else return;
+      e.preventDefault();
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("keydown", onKey);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [doc]);
+
   const startResize = (e: React.PointerEvent) => {
     e.preventDefault();
     const move = (ev: PointerEvent) => setChatWidth(Math.min(800, Math.max(320, window.innerWidth - ev.clientX)));
@@ -308,7 +336,7 @@ export default function App() {
       <UpdateBanner />
 
       <main className="split" style={{ gridTemplateColumns: `1fr 6px ${chatWidth}px` }}>
-        <section className="left">
+        <section className="left" ref={leftRef}>
           {doc ? (
             <PdfViewer
               key={fileName + doc.fingerprints[0]}

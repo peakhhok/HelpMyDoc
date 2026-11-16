@@ -189,6 +189,23 @@ async function httpOnlySmoke({ userData, env }) {
       { timeout: 15_000 },
     );
     check("PDF 텍스트 레이어 추출", true);
+
+    // Ctrl+마우스 휠로 PDF 만 확대·축소된다 (화면 전체 확대가 아님)
+    const zoomText = () => win.locator(".zoom span").innerText();
+    const before = await zoomText();
+    await win.locator(".viewer").hover();
+    await win.keyboard.down("Control");
+    await win.mouse.wheel(0, -300);
+    await win.keyboard.up("Control");
+    await win.waitForFunction((b) => document.querySelector(".zoom span")?.textContent !== b, before, {
+      timeout: 5_000,
+    });
+    check("Ctrl+휠 확대", parseInt(await zoomText(), 10) > parseInt(before, 10), `${before} → ${await zoomText()}`);
+    await win.keyboard.press("Control+0");
+    await win.waitForFunction((b) => document.querySelector(".zoom span")?.textContent === b, before, {
+      timeout: 5_000,
+    });
+    check("Ctrl+0 으로 기본 배율 복귀", (await zoomText()) === before);
     check("화면 오류 없음", errors.length === 0, errors.join(" | "));
   } finally {
     await app.close().catch(() => {});
