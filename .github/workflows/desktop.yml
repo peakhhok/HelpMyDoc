@@ -48,11 +48,10 @@ jobs:
           node scripts/smoke-desktop.cjs $exe
       - name: Smoke test (Windows, portable exe)
         if: runner.os == 'Windows'
-        continue-on-error: true
         shell: pwsh
         run: |
           $portable = Get-ChildItem release -Filter "*portable.exe" | Select-Object -First 1
-          node scripts/smoke-desktop.cjs $portable.FullName
+          node scripts/smoke-desktop.cjs $portable.FullName --http-only
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:

@@ -13,8 +13,11 @@ const { tmpdir } = require("node:os");
 const { delimiter, join } = require("node:path");
 
 const exe = process.argv[2];
+// 포터블 exe 처럼 "실제 앱을 자식 프로세스로 띄우는" 포장은 Playwright 가 연결을 못 잡는다.
+// 그때는 --http-only 로 앱을 그냥 실행하고 로컬 서버가 응답하는지만 확인한다.
+const httpOnly = process.argv.includes("--http-only");
 if (!exe) {
-  console.error("사용법: node scripts/smoke-desktop.cjs <실행 파일 경로>");
+  console.error("사용법: node scripts/smoke-desktop.cjs <실행 파일 경로> [--http-only]");
   process.exit(2);
 }
 
@@ -72,6 +75,59 @@ process.exit(2);
   return dir;
 }
 
+/** 앱을 일반 프로세스로 실행하고, 로컬 서버(고정 포트)가 화면과 브리지를 서비스하는지 HTTP 로 확인한다. */
+async function httpOnlySmoke({ userData, env }) {
+  const { spawn, spawnSync } = require("node:child_process");
+  const http = require("node:http");
+  const get = (path) =>
+    new Promise((resolve, reject) => {
+      const req = http.get({ host: "127.0.0.1", port: 47821, path, timeout: 3000 }, (res) => {
+        let body = "";
+        res.on("data", (d) => (body += d));
+        res.on("end", () => resolve({ status: res.statusCode, body }));
+      });
+      req.on("error", reject);
+      req.on("timeout", () => req.destroy(new Error("timeout")));
+    });
+
+  const child = spawn(exe, ["--user-data-dir=" + userData, ...(process.platform === "linux" ? ["--no-sandbox"] : [])], {
+    env,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  let exited = null;
+  child.on("exit", (code) => (exited = code));
+  try {
+    let home = null;
+    const deadline = Date.now() + 120_000;
+    while (Date.now() < deadline && !home) {
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        home = await get("/");
+      } catch {
+        /* 아직 안 떴다 */
+      }
+    }
+    check(
+      "앱이 뜨고 로컬 서버가 화면을 서비스",
+      !!home && home.status === 200 && home.body.includes('id="root"'),
+      home ? `HTTP ${home.status}` : `응답 없음 (프로세스 종료 코드: ${exited})`,
+    );
+    if (home) {
+      const claude = JSON.parse((await get("/api/claude-code/status")).body);
+      check("Claude 브리지 응답", claude.platform === process.platform, JSON.stringify(claude));
+      const codex = JSON.parse((await get("/api/codex/status")).body);
+      check("Codex 감지", codex.available === true && codex.version === "codex-cli 9.9.9", JSON.stringify(codex));
+    }
+  } finally {
+    // 포터블 exe 는 압축을 푼 실제 앱이 자식 프로세스이므로 프로세스 트리를 통째로 끝낸다.
+    if (process.platform === "win32") spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"]);
+    else child.kill("SIGKILL");
+  }
+  console.log(failures ? `\n실패 ${failures}건` : "\n스모크 테스트 통과");
+  process.exit(failures ? 1 : 0);
+}
+
 (async () => {
   const userData = mkdtempSync(join(tmpdir(), "hmd-smoke-ud-"));
   const shimDir = makeFakeCodex();
@@ -81,10 +137,12 @@ process.exit(2);
 
   // 윈도우의 PATH 변수 이름은 `Path` 일 수 있다. 같은 이름으로 덧붙여야 중복 키가 생기지 않는다.
   const pathKey = Object.keys(process.env).find((k) => k.toLowerCase() === "path") ?? "PATH";
+  const appEnv = { ...process.env, [pathKey]: shimDir + delimiter + (process.env[pathKey] ?? "") };
+  if (httpOnly) return httpOnlySmoke({ userData, env: appEnv });
   const app = await _electron.launch({
     executablePath: exe,
     args,
-    env: { ...process.env, [pathKey]: shimDir + delimiter + (process.env[pathKey] ?? "") },
+    env: appEnv,
     timeout: 60_000,
   });
   const errors = [];
