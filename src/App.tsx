@@ -1,13 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { PdfViewer, type PdfViewerHandle } from "./components/PdfViewer";
+import { PdfViewer, type NewHighlight, type PdfViewerHandle } from "./components/PdfViewer";
 import { ChatPanel } from "./components/ChatPanel";
+import { NotesPanel } from "./components/NotesPanel";
+import { ScanDialog } from "./components/ScanDialog";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { SetupScreen } from "./components/SetupScreen";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { fetchBridgeStatus, type BridgeStatus, type CliId } from "./lib/bridgeClient";
 import { sha256Hex } from "./lib/docId";
+import {
+  HL_COLORS,
+  HL_CSS,
+  HL_LABEL,
+  newId,
+  sanitizeHighlights,
+  sanitizeNotes,
+  type Highlight,
+  type HlColor,
+} from "./lib/annotations";
 import { loadDoc, updateDoc } from "./lib/docStore";
+import { sanitizeScan, type ScanData } from "./lib/scan";
+import { useScan } from "./lib/useScan";
 import type { UiMessage } from "./lib/history";
 import { openPdf } from "./lib/pdf";
 import { getProvider } from "./lib/providers";
@@ -25,6 +39,13 @@ export default function App() {
   /** 문서 지문(저장의 키)과, 저장돼 있던 대화·마지막 페이지 */
   const [docId, setDocId] = useState("");
   const [restored, setRestored] = useState<{ messages: UiMessage[]; lastPage: number }>({ messages: [], lastPage: 1 });
+  /** 이 문서의 형광펜·페이지 메모·스캔 결과 (문서별로 저장) */
+  const [highlights, setHighlights] = useState<Highlight[]>([]);
+  const [notes, setNotes] = useState<Record<number, string>>({});
+  const [scan, setScan] = useState<ScanData | null>(null);
+  const [penColor, setPenColor] = useState<HlColor | null>(null);
+  const [rightTab, setRightTab] = useState<"chat" | "notes">("chat");
+  const [showScan, setShowScan] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageInput, setPageInput] = useState("1");
@@ -161,6 +182,77 @@ export default function App() {
     }
   };
 
+  // 형광펜·메모·스캔 결과를 바꿀 때마다 잠시 뒤 이 문서의 기록에 저장한다 (기록 저장을 껐으면 저장하지 않는다).
+  const ann = useRef({ highlights, notes, scan });
+  const annTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const annPending = useRef<(() => void) | null>(null);
+  /** 아직 저장하지 않은 변경이 있으면 지금 바로 저장한다 (다른 문서를 열거나 창을 닫기 전) */
+  const flushAnn = useCallback(() => {
+    clearTimeout(annTimer.current);
+    const run = annPending.current;
+    annPending.current = null;
+    run?.();
+  }, []);
+  const saveAnn = useCallback(() => {
+    clearTimeout(annTimer.current);
+    const target = { id: docId, name: fileName, numPages: doc?.numPages ?? 0 };
+    const data = ann.current;
+    annPending.current = () => {
+      if (!settingsRef.current.saveHistory || !target.id || !target.numPages) return;
+      hasRecord.current = true;
+      updateDoc(target.id, { name: target.name, numPages: target.numPages }, { ...data });
+    };
+    annTimer.current = setTimeout(flushAnn, 500);
+  }, [docId, fileName, doc, flushAnn]);
+  useEffect(() => {
+    window.addEventListener("beforeunload", flushAnn);
+    return () => window.removeEventListener("beforeunload", flushAnn);
+  }, [flushAnn]);
+  const changeHighlights = useCallback(
+    (update: (prev: Highlight[]) => Highlight[]) => {
+      ann.current.highlights = update(ann.current.highlights);
+      setHighlights(ann.current.highlights);
+      saveAnn();
+    },
+    [saveAnn],
+  );
+  const changeNote = useCallback(
+    (pg: number, text: string) => {
+      const next = { ...ann.current.notes };
+      if (text.trim()) next[pg] = text;
+      else delete next[pg];
+      ann.current.notes = next;
+      setNotes(next);
+      saveAnn();
+    },
+    [saveAnn],
+  );
+  const changeScan = useCallback(
+    (update: (prev: ScanData | null) => ScanData | null) => {
+      ann.current.scan = update(ann.current.scan);
+      setScan(ann.current.scan);
+      saveAnn();
+    },
+    [saveAnn],
+  );
+  const addHighlight = useCallback(
+    (h: NewHighlight) => changeHighlights((prev) => [...prev, { ...h, id: newId(), createdAt: Date.now() }]),
+    [changeHighlights],
+  );
+  const changeHighlight = useCallback(
+    (id: string, patch: Partial<Pick<Highlight, "color" | "note">>) =>
+      changeHighlights((prev) => prev.map((h) => (h.id === id ? { ...h, ...patch } : h))),
+    [changeHighlights],
+  );
+  const removeHighlight = useCallback(
+    (id: string) => changeHighlights((prev) => prev.filter((h) => h.id !== id)),
+    [changeHighlights],
+  );
+
+  const scanProvider = getProvider(settings.provider);
+  const scanUnavailable = scanProvider.unavailableReason({ settings, bridge, codex });
+  const scanner = useScan({ doc, fileName, settings, unavailable: scanUnavailable, scan, changeScan, onLimits });
+
   const openFile = async (file: File | undefined) => {
     if (!file) return;
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
@@ -178,6 +270,7 @@ export default function App() {
       const record = settingsRef.current.saveHistory && id ? await loadDoc(id) : undefined;
       const lastPage = Math.min(Math.max(1, record?.lastPage ?? 1), next.numPages);
       hasRecord.current = !!record;
+      flushAnn();
       docRef.current?.loadingTask.destroy();
       docRef.current = next;
       // 한 번에 반영해야 채팅창이 저장된 대화로 시작하고 뷰어가 저장된 페이지로 열린다.
@@ -185,6 +278,15 @@ export default function App() {
       setFileName(file.name);
       setDocId(id);
       setRestored({ messages: record?.messages ?? [], lastPage });
+      ann.current = {
+        highlights: sanitizeHighlights(record?.highlights),
+        notes: sanitizeNotes(record?.notes),
+        scan: sanitizeScan(record?.scan),
+      };
+      setHighlights(ann.current.highlights);
+      setNotes(ann.current.notes);
+      setScan(ann.current.scan);
+      setPenColor(null);
       setPage(lastPage);
       setPageInput(String(lastPage));
       setSelection("");
@@ -262,6 +364,16 @@ export default function App() {
     };
   }, [doc]);
 
+  const noteCount = Object.keys(notes).length + highlights.length;
+  const scanned = scan?.chunks.length ?? 0;
+  const scanLabel = scanner.running
+    ? ` ${scanner.progress?.done ?? 0}/${scanner.progress?.total ?? "…"}`
+    : scanned === 0
+      ? ""
+      : scanner.estimate && scanner.remaining === 0
+        ? " ✓"
+        : " (일부)";
+
   const startResize = (e: React.PointerEvent) => {
     e.preventDefault();
     const move = (ev: PointerEvent) => setChatWidth(Math.min(800, Math.max(320, window.innerWidth - ev.clientX)));
@@ -292,6 +404,37 @@ export default function App() {
         <span className="filename" title={fileName}>
           {fileName || "HelpMyDoc"}
         </span>
+        {doc && (
+          <div className="tools">
+            <span className="tool-label">형광펜</span>
+            {HL_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={`swatch${penColor === c ? " on" : ""}`}
+                style={{ background: HL_CSS[c] }}
+                title={`${HL_LABEL[c]} — 글자를 고른 채 누르면 바로 칠하고, 고르지 않고 누르면 형광펜 모드가 켜져요 (한 번 더 누르면 꺼짐)`}
+                aria-label={`${HL_LABEL[c]} 형광펜`}
+                aria-pressed={penColor === c}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  if (viewerRef.current?.highlightSelection(c)) return;
+                  setPenColor((cur) => (cur === c ? null : c));
+                }}
+              />
+            ))}
+            <button className="ghost" onClick={() => setRightTab("notes")} title="이 문서의 메모와 형광펜 보기">
+              📝 메모{noteCount > 0 ? ` ${noteCount}` : ""}
+            </button>
+            <button
+              className="ghost"
+              onClick={() => setShowScan(true)}
+              title="AI가 문서를 한 번 훑어 개요를 만들어 둬요"
+            >
+              🔍 문서 스캔{scanLabel}
+            </button>
+          </div>
+        )}
         <span className="spacer" />
         {doc && (
           <>
@@ -346,6 +489,11 @@ export default function App() {
               scale={scale}
               onPageChange={onPageChange}
               onSelect={setSelection}
+              highlights={highlights}
+              penColor={penColor}
+              onAddHighlight={addHighlight}
+              onChangeHighlight={changeHighlight}
+              onRemoveHighlight={removeHighlight}
             />
           ) : (
             <div className="dropzone" onClick={() => fileInput.current?.click()}>
@@ -357,33 +505,99 @@ export default function App() {
           )}
         </section>
         <div className="resizer" onPointerDown={startResize} role="separator" aria-orientation="vertical" />
-        <ChatPanel
-          key={fileName + docId}
-          docId={docId}
-          initialMessages={restored.messages}
-          onGoToPage={(n) => viewerRef.current?.goTo(n)}
-          doc={doc}
-          fileName={fileName}
-          currentPage={page}
-          selection={selection}
-          onClearSelection={() => setSelection("")}
-          settings={settings}
-          bridge={bridge}
-          codex={codex}
-          onOpenSettings={openSettings}
-          onSwitchProvider={switchProvider}
-          onOpenSetup={() => setForceSetup(true)}
-          onRecheckBridge={() => {
-            refreshBridge(true);
-            if (settingsRef.current.enableCodex) refreshCodex(true);
-          }}
-          limits={limits}
-          onLimits={onLimits}
-          limitsMissing={limitsMissing}
-          onLimitsMissing={() => setLimitsMissing(true)}
-        />
+        <div className="right">
+          <div className="tabs" role="tablist">
+            <button
+              role="tab"
+              aria-selected={rightTab === "chat"}
+              className={rightTab === "chat" ? "on" : ""}
+              onClick={() => setRightTab("chat")}
+            >
+              💬 채팅
+            </button>
+            <button
+              role="tab"
+              aria-selected={rightTab === "notes"}
+              className={rightTab === "notes" ? "on" : ""}
+              onClick={() => setRightTab("notes")}
+            >
+              📝 메모{noteCount > 0 ? ` (${noteCount})` : ""}
+            </button>
+          </div>
+          <div className="tab-pane" hidden={rightTab !== "chat"}>
+            <ChatPanel
+              key={fileName + docId}
+              docId={docId}
+              initialMessages={restored.messages}
+              onGoToPage={(n) => viewerRef.current?.goTo(n)}
+              doc={doc}
+              fileName={fileName}
+              currentPage={page}
+              selection={selection}
+              onClearSelection={() => setSelection("")}
+              settings={settings}
+              bridge={bridge}
+              codex={codex}
+              onOpenSettings={openSettings}
+              onSwitchProvider={switchProvider}
+              onOpenSetup={() => setForceSetup(true)}
+              onRecheckBridge={() => {
+                refreshBridge(true);
+                if (settingsRef.current.enableCodex) refreshCodex(true);
+              }}
+              limits={limits}
+              onLimits={onLimits}
+              limitsMissing={limitsMissing}
+              scan={scan}
+              notes={notes}
+              highlights={highlights}
+              onLimitsMissing={() => setLimitsMissing(true)}
+            />
+          </div>
+          <div className="tab-pane" hidden={rightTab !== "notes"}>
+            <NotesPanel
+              fileName={fileName}
+              numPages={doc?.numPages ?? 0}
+              currentPage={page}
+              notes={notes}
+              highlights={highlights}
+              persist={settings.saveHistory}
+              onChangeNote={changeNote}
+              onChangeHighlight={changeHighlight}
+              onRemoveHighlight={removeHighlight}
+              onGoToPage={(n) => viewerRef.current?.goTo(n)}
+            />
+          </div>
+        </div>
       </main>
 
+      {showScan && doc && (
+        <ScanDialog
+          fileName={fileName}
+          numPages={doc.numPages}
+          providerName={scanProvider.short}
+          unavailable={scanUnavailable}
+          scan={scan}
+          estimate={scanner.estimate}
+          analyzing={scanner.analyzing}
+          remaining={scanner.remaining}
+          running={scanner.running}
+          progress={scanner.progress}
+          error={scanner.error}
+          useOverview={settings.useOverview}
+          onToggleUseOverview={(v) => {
+            const next = { ...settings, useOverview: v };
+            setSettings(next);
+            saveSettings(next);
+          }}
+          persist={settings.saveHistory}
+          onAnalyze={() => void scanner.analyze()}
+          onStart={() => void scanner.start()}
+          onCancel={scanner.cancel}
+          onClear={() => changeScan(() => null)}
+          onClose={() => setShowScan(false)}
+        />
+      )}
       {dragOver && <div className="drop-overlay">PDF를 놓아서 열기</div>}
       {showSetup && (
         <SetupScreen

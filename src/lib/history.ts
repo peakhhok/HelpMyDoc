@@ -3,7 +3,16 @@ import type { TurnUsage } from "./usage";
 
 /** 화면에 보이는 메시지. 질문에는 AI 에게 실제로 보여준 문서 범위(ref)가 붙는다. */
 export interface UiMessage extends ChatMessage {
-  ref?: { from: number; to: number; selection: boolean; emptyPages: number[] };
+  ref?: {
+    from: number;
+    to: number;
+    selection: boolean;
+    emptyPages: number[];
+    /** 문서 개요(스캔 결과)를 함께 보냈음 */
+    overview?: boolean;
+    /** 내가 쓴 메모를 함께 보냈음 */
+    notes?: boolean;
+  };
   /** 답변(assistant)에 쓰인 토큰 수 */
   usage?: TurnUsage;
   /** 답변에 대한 안내 (예: Codex 가 도구를 쓰려 했음) */

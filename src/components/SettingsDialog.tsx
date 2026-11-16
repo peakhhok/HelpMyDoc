@@ -356,7 +356,7 @@ export function SettingsDialog({
 
         <label className="check">
           <input type="checkbox" checked={draft.saveHistory} onChange={(e) => set({ saveHistory: e.target.checked })} />
-          문서별 대화와 마지막 페이지를 이 PC에 저장
+          문서별 대화·메모·형광펜·스캔 결과·마지막 페이지를 이 PC에 저장
         </label>
         <p className="hint">
           같은 PDF를 다시 열면 이전 대화와 보던 페이지가 이어집니다. 문서는 파일 이름이 아니라 내용으로 구분하며, PDF

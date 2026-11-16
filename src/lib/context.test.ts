@@ -103,4 +103,28 @@ describe("escapeAttr", () => {
   it('& < > " 를 이스케이프한다', () => {
     expect(escapeAttr(`a&b<c>"d`)).toBe("a&amp;b&lt;c&gt;&quot;d");
   });
+
+  it("문서 개요와 내 메모는 있을 때만 붙고, 개요는 원문 앞에 온다", async () => {
+    const plain = await buildPrompt({ ...base, currentPage: 2, radius: 0, getPageText: pages({ 2: "TWO" }) });
+    expect(plain.prompt).not.toContain("document_overview");
+    expect(plain.prompt).not.toContain("user_notes");
+    expect([plain.overview, plain.notes]).toEqual([false, false]);
+
+    const r = await buildPrompt({
+      ...base,
+      currentPage: 2,
+      radius: 0,
+      getPageText: pages({ 2: "TWO" }),
+      overview: "<document_overview>OV</document_overview>",
+      notes: [
+        { page: 2, text: '내 <메모> "중요"' },
+        { page: 2, text: "   " },
+      ],
+    });
+    expect(r.prompt.indexOf("document_overview")).toBeLessThan(r.prompt.indexOf("<document_context"));
+    expect(r.prompt).toContain('<note page="2">내 &lt;메모&gt; &quot;중요&quot;</note>');
+    expect(r.prompt.match(/<note /g)).toHaveLength(1);
+    expect(r.prompt.trim().endsWith("요약해줘")).toBe(true);
+    expect([r.overview, r.notes]).toEqual([true, true]);
+  });
 });

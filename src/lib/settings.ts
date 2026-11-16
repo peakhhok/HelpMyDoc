@@ -44,6 +44,8 @@ export interface Settings {
   saveHistory: boolean;
   /** 첫 실행 설정(연결 방식 선택)을 마쳤는가 */
   onboarded: boolean;
+  /** 문서 스캔 결과(개요)와 내 메모를 질문에 함께 보낸다 */
+  useOverview: boolean;
 }
 
 const KEY = "helpmydoc.settings.v1";
@@ -62,6 +64,7 @@ export const DEFAULT_SETTINGS: Settings = {
   radius: 1,
   saveHistory: true,
   onboarded: false,
+  useOverview: true,
 };
 
 export function loadSettings(): Settings {

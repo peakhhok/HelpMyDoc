@@ -1,7 +1,9 @@
 // 문서별 기억: 대화 내용과 마지막으로 본 페이지를 이 PC(IndexedDB)에만 저장한다.
 // 문서는 파일 이름이 아니라 파일 내용의 SHA-256 해시(docId.ts)로 구분한다.
 // PDF 파일 자체와 추출한 텍스트는 저장하지 않는다.
+import type { Highlight } from "./annotations";
 import type { UiMessage } from "./history";
+import type { ScanData } from "./scan";
 
 export interface DocRecord {
   /** 파일 내용의 SHA-256 (해시를 못 쓰는 환경에서는 pdf.js fingerprint) */
@@ -11,6 +13,12 @@ export interface DocRecord {
   numPages: number;
   lastPage: number;
   messages: UiMessage[];
+  /** 형광펜 (위치는 페이지 크기 대비 비율) */
+  highlights?: Highlight[];
+  /** 페이지별 메모 */
+  notes?: Record<number, string>;
+  /** 문서 스캔 결과(구간별 요약) */
+  scan?: ScanData | null;
   updatedAt: number;
 }
 
@@ -82,7 +90,13 @@ export async function listDocs(): Promise<DocRecord[]> {
 export async function updateDoc(
   id: string,
   meta: DocMeta,
-  patch: { lastPage?: number; messages?: UiMessage[] },
+  patch: {
+    lastPage?: number;
+    messages?: UiMessage[];
+    highlights?: Highlight[];
+    notes?: Record<number, string>;
+    scan?: ScanData | null;
+  },
 ): Promise<void> {
   const db = await openDb();
   if (!db || !id) return;
@@ -95,11 +109,15 @@ export async function updateDoc(
         const cur = get.result as DocRecord | undefined;
         const messages = patch.messages ?? cur?.messages ?? [];
         store.put({
+          ...cur, // 이번에 바꾸지 않는 필드(형광펜·메모·스캔 등)는 그대로 둔다
           id,
           name: meta.name,
           numPages: meta.numPages,
           lastPage: patch.lastPage ?? cur?.lastPage ?? 1,
           messages: messages.length > MAX_STORED_MESSAGES ? messages.slice(-MAX_STORED_MESSAGES) : messages,
+          highlights: patch.highlights ?? cur?.highlights,
+          notes: patch.notes ?? cur?.notes,
+          scan: patch.scan === undefined ? cur?.scan : patch.scan,
           updatedAt: Date.now(),
         } satisfies DocRecord);
       };

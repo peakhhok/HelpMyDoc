@@ -20,7 +20,9 @@ export function HistoryManager() {
             type="button"
             className="ghost small"
             onClick={async () => {
-              if (window.confirm("저장된 모든 문서의 대화와 마지막 페이지 기록을 삭제할까요?")) {
+              if (
+                window.confirm("저장된 모든 문서의 대화, 메모, 형광펜, 스캔 결과, 마지막 페이지 기록을 삭제할까요?")
+              ) {
                 await clearAllDocs();
                 refresh();
               }
@@ -40,8 +42,10 @@ export function HistoryManager() {
                 {d.name}
               </span>
               <span className="meta">
-                질문 {Math.ceil(d.messages.length / 2)}개 · {d.lastPage}/{d.numPages}쪽 ·{" "}
-                {new Date(d.updatedAt).toLocaleDateString()}
+                질문 {Math.ceil(d.messages.length / 2)}개 · {d.lastPage}/{d.numPages}쪽
+                {(d.highlights?.length ?? 0) + Object.keys(d.notes ?? {}).length > 0 &&
+                  ` · 메모·형광펜 ${(d.highlights?.length ?? 0) + Object.keys(d.notes ?? {}).length}개`}
+                {d.scan?.chunks.length ? " · 스캔됨" : ""} · {new Date(d.updatedAt).toLocaleDateString()}
               </span>
               <button
                 type="button"

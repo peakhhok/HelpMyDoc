@@ -6,7 +6,9 @@ import { ClaudeError } from "../lib/anthropicApi";
 import { LimitsBadge } from "./LimitsBadge";
 import { ProviderSwitcher } from "./ProviderSwitcher";
 import { ClaudeCodeError, type BridgeStatus } from "../lib/bridgeClient";
+import type { Highlight } from "../lib/annotations";
 import { buildPrompt } from "../lib/context";
+import { buildOverview, type ScanData } from "../lib/scan";
 import { updateDoc } from "../lib/docStore";
 import { linkifyPages, trimHistory, type UiMessage } from "../lib/history";
 import { getPageText } from "../lib/pdf";
@@ -47,6 +49,10 @@ interface Props {
   /** 답변을 받았는데 한도 정보가 하나도 오지 않았음 (옛 Claude Code 버전) */
   limitsMissing: boolean;
   onLimitsMissing: () => void;
+  /** 문서 스캔 결과, 페이지 메모, 형광펜 (질문에 함께 보낼 수 있다) */
+  scan: ScanData | null;
+  notes: Record<number, string>;
+  highlights: Highlight[];
 }
 
 const QUICK_PROMPTS = ["여기서 중요한 부분을 요약해줘", "이 페이지를 쉽게 설명해줘", "핵심 개념을 정리해줘"];
@@ -71,6 +77,9 @@ export function ChatPanel({
   onLimits,
   limitsMissing,
   onLimitsMissing,
+  scan,
+  notes,
+  highlights,
 }: Props) {
   const [messages, setMessages] = useState<UiMessage[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -120,7 +129,21 @@ export function ChatPanel({
     let sawLimits = false;
 
     try {
+      // 문서 스캔 개요와 내 메모 (설정에서 끌 수 있다). 메모는 질문에 포함되는 쪽의 것만 보낸다.
+      const from = Math.max(1, currentPage - settings.radius);
+      const to = Math.min(doc.numPages, currentPage + settings.radius);
+      const memos: Array<{ page: number; text: string }> = [];
+      if (settings.useOverview) {
+        for (let p = from; p <= to; p++) {
+          if (notes[p]?.trim()) memos.push({ page: p, text: notes[p] });
+          for (const h of highlights) {
+            if (h.page === p && h.note?.trim()) memos.push({ page: p, text: `"${h.text.slice(0, 80)}" → ${h.note}` });
+          }
+        }
+      }
       const ctx = await buildPrompt({
+        overview: settings.useOverview ? buildOverview(scan, currentPage) : "",
+        notes: memos,
         numPages: doc.numPages,
         getPageText: (p) => getPageText(doc, p),
         fileName,
@@ -132,7 +155,14 @@ export function ChatPanel({
       const userMsg: UiMessage = {
         role: "user",
         content: question,
-        ref: { from: ctx.from, to: ctx.to, selection: !!selection.trim(), emptyPages: ctx.emptyPages },
+        ref: {
+          from: ctx.from,
+          to: ctx.to,
+          selection: !!selection.trim(),
+          emptyPages: ctx.emptyPages,
+          overview: ctx.overview,
+          notes: ctx.notes,
+        },
       };
       setMessages([...history, userMsg, { role: "assistant", content: "" }]);
 
@@ -252,6 +282,8 @@ export function ChatPanel({
               <div className="ref">
                 📄 {m.ref.from === m.ref.to ? `p.${m.ref.from}` : `p.${m.ref.from}–${m.ref.to}`} 참조
                 {m.ref.selection && " · 선택 텍스트 포함"}
+                {m.ref.overview && " · 📚 문서 개요 포함"}
+                {m.ref.notes && " · 📝 내 메모 포함"}
                 {m.ref.emptyPages.length > 0 && ` · 텍스트 없는 쪽: ${m.ref.emptyPages.join(", ")}`}
               </div>
             )}

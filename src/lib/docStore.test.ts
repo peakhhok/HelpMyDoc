@@ -72,4 +72,37 @@ describe("docStore", () => {
     await updateDoc("", meta, { lastPage: 5 });
     expect(await listDocs()).toEqual([]);
   });
+
+  it("형광펜·메모·스캔 결과는 다른 필드를 저장해도 사라지지 않는다", async () => {
+    const highlights = [
+      {
+        id: "h1",
+        page: 2,
+        color: "yellow" as const,
+        rects: [{ x: 0, y: 0, w: 0.5, h: 0.1 }],
+        text: "중요",
+        createdAt: 1,
+      },
+    ];
+    const scan = {
+      version: 1 as const,
+      provider: "claude-code",
+      updatedAt: 1,
+      chunks: [{ from: 1, to: 5, title: "t", summary: "s" }],
+    };
+    await updateDoc("fp", meta, { highlights, notes: { 2: "메모" }, scan });
+    await updateDoc("fp", meta, { lastPage: 9 });
+    await updateDoc("fp", meta, { messages: [m("q")] });
+    const rec = await loadDoc("fp");
+    expect(rec?.highlights).toEqual(highlights);
+    expect(rec?.notes).toEqual({ 2: "메모" });
+    expect(rec?.scan?.chunks).toHaveLength(1);
+    expect(rec?.lastPage).toBe(9);
+    // 스캔 결과 삭제 (null) 와 빈 형광펜 목록은 실제로 비워진다
+    await updateDoc("fp", meta, { scan: null, highlights: [], notes: {} });
+    const cleared = await loadDoc("fp");
+    expect(cleared?.scan).toBeNull();
+    expect(cleared?.highlights).toEqual([]);
+    expect(cleared?.notes).toEqual({});
+  });
 });
