@@ -14,6 +14,8 @@ export interface UiMessage extends ChatMessage {
     notes?: boolean;
     /** 함께 보낸 "비슷한 내용의 다른 쪽" */
     related?: number[];
+    /** 함께 보낸 첨부 파일 이름 */
+    attached?: string[];
   };
   /** 답변(assistant)에 쓰인 토큰 수 */
   usage?: TurnUsage;

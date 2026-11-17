@@ -151,4 +151,26 @@ describe("escapeAttr", () => {
       [],
     );
   });
+
+  it("첨부 파일은 원문 앞에 <attached_files> 로, 이름·잘림 표시와 함께 붙는다", async () => {
+    const r = await buildPrompt({
+      ...base,
+      currentPage: 3,
+      radius: 0,
+      getPageText: pages({ 3: "THREE" }),
+      attachments: [
+        { name: 'a"b.md', text: "# 노트\n내용" },
+        { name: "long.txt", text: "앞부분", cut: true },
+        { name: "empty.txt", text: "  " },
+      ],
+    });
+    expect(r.attached).toEqual(['a"b.md', "long.txt"]);
+    expect(r.prompt).toContain('<file name="a&quot;b.md">\n# 노트\n내용\n</file>');
+    expect(r.prompt).toContain('<file name="long.txt" truncated="true">');
+    expect(r.prompt.indexOf("<attached_files")).toBeLessThan(r.prompt.indexOf("<document_context"));
+    expect(r.prompt.trim().endsWith("요약해줘")).toBe(true);
+    expect(
+      (await buildPrompt({ ...base, currentPage: 3, radius: 0, getPageText: pages({ 3: "x" }) })).attached,
+    ).toEqual([]);
+  });
 });

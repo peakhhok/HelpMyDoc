@@ -2,6 +2,7 @@
 // 문서는 파일 이름이 아니라 파일 내용의 SHA-256 해시(docId.ts)로 구분한다.
 // PDF 파일 자체와 추출한 텍스트는 저장하지 않는다.
 import type { Highlight } from "./annotations";
+import type { Attachment } from "./attach";
 import type { UiMessage } from "./history";
 import type { ScanData } from "./scan";
 
@@ -19,6 +20,8 @@ export interface DocRecord {
   notes?: Record<number, string>;
   /** 문서 스캔 결과(구간별 요약) */
   scan?: ScanData | null;
+  /** 채팅창에 올린 첨부 파일(글로 바꾼 것) */
+  attachments?: Attachment[];
   updatedAt: number;
 }
 
@@ -96,6 +99,7 @@ export async function updateDoc(
     highlights?: Highlight[];
     notes?: Record<number, string>;
     scan?: ScanData | null;
+    attachments?: Attachment[];
   },
 ): Promise<void> {
   const db = await openDb();
@@ -118,6 +122,7 @@ export async function updateDoc(
           highlights: patch.highlights ?? cur?.highlights,
           notes: patch.notes ?? cur?.notes,
           scan: patch.scan === undefined ? cur?.scan : patch.scan,
+          attachments: patch.attachments ?? cur?.attachments,
           updatedAt: Date.now(),
         } satisfies DocRecord);
       };

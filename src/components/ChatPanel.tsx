@@ -7,6 +7,7 @@ import { LimitsBadge } from "./LimitsBadge";
 import { ProviderSwitcher } from "./ProviderSwitcher";
 import { ClaudeCodeError, type BridgeStatus } from "../lib/bridgeClient";
 import type { Highlight } from "../lib/annotations";
+import { fitAttachments, readAttachment, type Attachment } from "../lib/attach";
 import { buildPrompt, type RelatedEntry } from "../lib/context";
 import { buildOverview, digestMap, type ScanData } from "../lib/scan";
 import { isAuthError } from "../lib/verify";
@@ -30,6 +31,8 @@ interface Props {
   docId: string;
   /** 저장된 이전 대화 */
   initialMessages: UiMessage[];
+  /** 저장된 첨부 파일 */
+  initialAttachments: Attachment[];
   /** 답변 속 p.N 링크를 눌렀을 때 */
   onGoToPage: (page: number) => void;
   settings: Settings;
@@ -73,6 +76,7 @@ export function ChatPanel({
   onClearSelection,
   docId,
   initialMessages,
+  initialAttachments,
   onGoToPage,
   settings,
   bridge,
@@ -93,6 +97,12 @@ export function ChatPanel({
   getIndex,
 }: Props) {
   const [messages, setMessages] = useState<UiMessage[]>(initialMessages);
+  /** 채팅창에 올린 파일 (글로 바꾼 것). 질문마다 함께 전송된다 */
+  const [attachments, setAttachments] = useState<Attachment[]>(initialAttachments);
+  const [attachNote, setAttachNote] = useState<string | null>(null);
+  const [attachBusy, setAttachBusy] = useState(false);
+  const attachInput = useRef<HTMLInputElement>(null);
+  const loadedAttachments = useRef(initialAttachments);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,6 +130,36 @@ export function ChatPanel({
     if (busy || !persist || !doc || messages === loadedMessages.current) return;
     updateDoc(docId, { name: fileName, numPages: doc.numPages }, { messages });
   }, [messages, busy, persist, doc, docId, fileName]);
+
+  // 첨부 파일이 바뀌면 이 문서의 기록에 저장한다.
+  useEffect(() => {
+    if (!persist || !doc || attachments === loadedAttachments.current) return;
+    updateDoc(docId, { name: fileName, numPages: doc.numPages }, { attachments });
+  }, [attachments, persist, doc, docId, fileName]);
+
+  const addFiles = async (list: FileList | File[] | null | undefined) => {
+    const files = Array.from(list ?? []);
+    if (files.length === 0) return;
+    setAttachBusy(true);
+    const problems: string[] = [];
+    const added: Attachment[] = [];
+    for (const f of files) {
+      try {
+        added.push(await readAttachment(f));
+      } catch (e) {
+        problems.push((e as Error).message || `${f.name}: 읽지 못했어요.`);
+      }
+    }
+    if (added.length) setAttachments((cur) => [...cur, ...added]);
+    setAttachNote(
+      problems.length
+        ? problems.join("\n")
+        : added.some((a) => a.truncated)
+          ? "너무 긴 파일은 앞부분만 담았어요."
+          : null,
+    );
+    setAttachBusy(false);
+  };
 
   const send = async (raw: string) => {
     const question = raw.trim();
@@ -172,6 +212,7 @@ export function ChatPanel({
         }
       }
       const ctx = await buildPrompt({
+        attachments: fitAttachments(attachments),
         related,
         overview: settings.useOverview ? buildOverview(scan, currentPage) : "",
         notes: memos,
@@ -194,6 +235,7 @@ export function ChatPanel({
           overview: ctx.overview,
           notes: ctx.notes,
           related: ctx.related,
+          attached: ctx.attached,
         },
       };
       setMessages([...history, userMsg, { role: "assistant", content: "" }]);
@@ -258,7 +300,17 @@ export function ChatPanel({
   };
 
   return (
-    <aside className="chat">
+    <aside
+      className="chat"
+      onDragOver={(e) => {
+        if (e.dataTransfer?.types?.includes("Files")) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer?.files?.length) return;
+        e.preventDefault();
+        void addFiles(e.dataTransfer.files);
+      }}
+    >
       <div className="chat-head">
         <ProviderSwitcher env={env} onSwitch={onSwitchProvider} onNeedSetup={(id) => onOpenSettings(id)} />
         <span className="muted">{provider.describe(settings)}</span>
@@ -323,6 +375,7 @@ export function ChatPanel({
                 {m.ref.selection && " · 선택 텍스트 포함"}
                 {m.ref.overview && " · 📚 문서 개요 포함"}
                 {m.ref.notes && " · 📝 내 메모 포함"}
+                {m.ref.attached && m.ref.attached.length > 0 && ` · 📎 첨부 ${m.ref.attached.length}개 포함`}
                 {m.ref.related && m.ref.related.length > 0 && (
                   <>
                     {" · 🔗 비슷한 내용: "}
@@ -399,6 +452,37 @@ export function ChatPanel({
       )}
 
       <div className="composer">
+        {attachments.length > 0 && (
+          <div className="attach-chips">
+            {attachments.map((a) => (
+              <span
+                key={a.id}
+                className="attach-chip"
+                title={`${a.name} · ${a.chars.toLocaleString()}자${a.truncated ? " (앞부분만 전송)" : ""}`}
+              >
+                📎 {a.name}
+                <small>
+                  {" "}
+                  {formatTokens(Math.round(a.text.length / 2))}토큰{a.truncated ? " · 일부" : ""}
+                </small>
+                <button
+                  type="button"
+                  className="ghost small"
+                  aria-label={`${a.name} 첨부 빼기`}
+                  onClick={() => setAttachments((cur) => cur.filter((x) => x.id !== a.id))}
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+            <span className="muted small-text">첨부한 파일은 질문할 때마다 함께 전송돼요 (사용량 ↑)</span>
+          </div>
+        )}
+        {attachNote && (
+          <div className="attach-note" role="alert">
+            {attachNote}
+          </div>
+        )}
         {selection.trim() && (
           <div className="selection-chip" title={selection}>
             <span>
@@ -411,6 +495,26 @@ export function ChatPanel({
           </div>
         )}
         <div className="composer-row">
+          <input
+            ref={attachInput}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              void addFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            className="ghost attach-btn"
+            title="파일 첨부 (문서, md, txt, PDF, PowerPoint, Word …). 이 창에 끌어다 놓아도 돼요"
+            aria-label="파일 첨부"
+            disabled={attachBusy}
+            onClick={() => attachInput.current?.click()}
+          >
+            {attachBusy ? "…" : "📎"}
+          </button>
           <textarea
             rows={2}
             value={input}

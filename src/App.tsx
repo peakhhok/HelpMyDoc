@@ -24,6 +24,7 @@ import { useDocIndex } from "./lib/useDocIndex";
 import { useClaudeVerify } from "./lib/useVerify";
 import { useScan } from "./lib/useScan";
 import type { UiMessage } from "./lib/history";
+import { sanitizeAttachments, type Attachment } from "./lib/attach";
 import { pdfSource, pptxSource, type DocSource } from "./lib/docSource";
 import { openPdf } from "./lib/pdf";
 import { getProvider } from "./lib/providers";
@@ -40,7 +41,11 @@ export default function App() {
   const [fileName, setFileName] = useState("");
   /** 문서 지문(저장의 키)과, 저장돼 있던 대화·마지막 페이지 */
   const [docId, setDocId] = useState("");
-  const [restored, setRestored] = useState<{ messages: UiMessage[]; lastPage: number }>({ messages: [], lastPage: 1 });
+  const [restored, setRestored] = useState<{ messages: UiMessage[]; lastPage: number; attachments: Attachment[] }>({
+    messages: [],
+    lastPage: 1,
+    attachments: [],
+  });
   /** 이 문서의 형광펜·페이지 메모·스캔 결과 (문서별로 저장) */
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [notes, setNotes] = useState<Record<number, string>>({});
@@ -304,7 +309,11 @@ export default function App() {
       setDoc(next);
       setFileName(file.name);
       setDocId(id);
-      setRestored({ messages: record?.messages ?? [], lastPage });
+      setRestored({
+        messages: record?.messages ?? [],
+        lastPage,
+        attachments: sanitizeAttachments(record?.attachments),
+      });
       ann.current = {
         highlights: sanitizeHighlights(record?.highlights),
         notes: sanitizeNotes(record?.notes),
@@ -340,9 +349,11 @@ export default function App() {
 
   // 창 어디에 놓아도 열리도록 드래그&드롭
   useEffect(() => {
+    // 채팅창에 놓는 파일은 "첨부"이므로 문서로 열지 않는다. (채팅창이 직접 처리한다)
+    const inChat = (e: DragEvent) => !!(e.target as Element | null)?.closest?.(".chat");
     const over = (e: DragEvent) => {
       e.preventDefault();
-      setDragOver(true);
+      setDragOver(!inChat(e));
     };
     const leave = (e: DragEvent) => {
       if (e.relatedTarget === null) setDragOver(false);
@@ -350,6 +361,7 @@ export default function App() {
     const drop = (e: DragEvent) => {
       e.preventDefault();
       setDragOver(false);
+      if (inChat(e)) return;
       openFile(e.dataTransfer?.files?.[0]);
     };
     window.addEventListener("dragover", over);
@@ -556,6 +568,7 @@ export default function App() {
               key={fileName + docId}
               docId={docId}
               initialMessages={restored.messages}
+              initialAttachments={restored.attachments}
               onGoToPage={(n) => viewerRef.current?.goTo(n)}
               doc={doc}
               fileName={fileName}

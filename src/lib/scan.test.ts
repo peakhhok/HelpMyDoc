@@ -17,13 +17,18 @@ import {
 
 describe("planChunks", () => {
   it("글자 수 상한을 넘기기 전에 구간을 끊고, 모든 쪽이 정확히 한 구간에 속한다", () => {
-    const pages = Array.from({ length: 20 }, () => 5000); // 한 구간에 4쪽
+    const pages = Array.from({ length: 80 }, () => 5000);
     const plan = planChunks(pages);
+    const perChunk = Math.floor(CHUNK_MAX_CHARS / 5000);
     expect(plan.every((c) => c.chars <= CHUNK_MAX_CHARS)).toBe(true);
-    expect(plan[0]).toMatchObject({ from: 1, to: 4 });
-    expect(plan[plan.length - 1].to).toBe(20);
+    expect(plan[0]).toMatchObject({ from: 1, to: perChunk });
+    expect(plan[plan.length - 1].to).toBe(80);
     const covered = plan.flatMap((c) => Array.from({ length: c.to - c.from + 1 }, (_, i) => c.from + i));
-    expect(covered).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+    expect(covered).toEqual(Array.from({ length: 80 }, (_, i) => i + 1));
+  });
+
+  it("짧은 문서는 한 번에 읽는다", () => {
+    expect(planChunks(Array.from({ length: 40 }, () => 1500))).toHaveLength(1);
   });
 
   it("글자가 적어도 쪽 수 상한으로 끊는다", () => {

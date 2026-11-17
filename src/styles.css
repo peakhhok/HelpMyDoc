@@ -999,3 +999,39 @@ a {
 .pp-text * {
   user-select: text;
 }
+
+/* ---------- 채팅 첨부 ---------- */
+.attach-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 4px 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--user-bg);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attach-chip small {
+  color: var(--muted);
+}
+.attach-note {
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: #b45309;
+  white-space: pre-wrap;
+}
+.attach-btn {
+  align-self: flex-end;
+  padding: 6px 8px;
+}

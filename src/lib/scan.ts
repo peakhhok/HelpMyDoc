@@ -37,8 +37,8 @@ export interface PlannedChunk {
 }
 
 /** 한 번의 요청에 담는 글자 수와 쪽 수의 상한 */
-export const CHUNK_MAX_CHARS = 24_000;
-export const CHUNK_MAX_PAGES = 30;
+export const CHUNK_MAX_CHARS = 100_000;
+export const CHUNK_MAX_PAGES = 60;
 /** 한 쪽에서 읽는 최대 글자 수 (질문 문맥과 같은 값) */
 export const PAGE_MAX_CHARS = 12_000;
 /** 질문에 덧붙이는 목차의 최대 글자 수 */

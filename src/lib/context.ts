@@ -14,6 +14,8 @@ export interface BuiltContext {
   notes: boolean;
   /** 함께 보낸 "비슷한 내용의 다른 쪽" 번호 */
   related: number[];
+  /** 함께 보낸 첨부 파일 이름 */
+  attached: string[];
 }
 
 /** 지금 쪽과 내용이 비슷해서 함께 보내는 다른 쪽 */
@@ -50,11 +52,14 @@ export async function buildPrompt(opts: {
   notes?: Array<{ page: number; text: string }>;
   /** 내용이 비슷한 다른 쪽 (점수 순) */
   related?: RelatedEntry[];
+  /** 사용자가 채팅창에 올린 파일 (글로 바꾼 것). cut 은 길어서 뒤를 줄였다는 뜻 */
+  attachments?: Array<{ name: string; text: string; cut?: boolean }>;
 }): Promise<BuiltContext> {
   const { numPages, getPageText, fileName, currentPage, radius, selection, question } = opts;
   const overview = (opts.overview ?? "").trim();
   const notes = (opts.notes ?? []).filter((n) => n.text.trim());
   const related = opts.related ?? [];
+  const attachments = (opts.attachments ?? []).filter((a) => a.text.trim());
   const from = Math.max(1, currentPage - radius);
   const to = Math.min(numPages, currentPage + radius);
 
@@ -69,6 +74,15 @@ export async function buildPrompt(opts: {
     );
   }
 
+  const attachBlock = attachments.length
+    ? `<attached_files note="${escapeAttr(
+        "사용자가 이 대화에 올린 참고 파일입니다. 질문과 관련이 있으면 이 내용을 근거로 답하세요.",
+      )}">\n` +
+      attachments
+        .map((a) => `<file name="${escapeAttr(a.name)}"${a.cut ? ' truncated="true"' : ""}>\n${a.text}\n</file>`)
+        .join("\n") +
+      `\n</attached_files>\n\n`
+    : "";
   const relatedBlock = related.length
     ? `\n<related_pages note="${escapeAttr(
         "지금 보는 쪽과 내용이 비슷한 다른 쪽을 자동으로 찾은 것입니다. 앞에서 이미 나온 내용과 연결해 설명할 때 (p.N) 형식으로 쪽 번호를 밝혀 주세요. 정확한 내용은 document_context 의 원문을 우선하세요.",
@@ -91,6 +105,7 @@ export async function buildPrompt(opts: {
   const sel = selection.trim() ? `\n<selected_text>\n${selection.trim()}\n</selected_text>\n` : "";
   const prompt =
     (overview ? `${overview}\n\n` : "") +
+    attachBlock +
     `<document_context file="${escapeAttr(fileName)}" total_pages="${numPages}" current_page="${currentPage}">\n` +
     pages.join("\n") +
     `\n</document_context>${relatedBlock}${noteBlock}${sel}\n\n${question}`;
@@ -103,5 +118,6 @@ export async function buildPrompt(opts: {
     overview: !!overview,
     notes: notes.length > 0,
     related: related.map((r) => r.page),
+    attached: attachments.map((a) => a.name),
   };
 }
