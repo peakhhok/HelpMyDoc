@@ -29,6 +29,7 @@ if (a[0] === "auth" && a[1] === "login") {
   process.exit(0);
 }
 if (process.env.FAKE_ARGS_FILE) fs.writeFileSync(process.env.FAKE_ARGS_FILE, JSON.stringify(a));
+if (process.env.FAKE_CWD_FILE) fs.writeFileSync(process.env.FAKE_CWD_FILE, process.cwd());
 if (process.env.FAKE_PID_FILE) fs.writeFileSync(process.env.FAKE_PID_FILE, String(process.pid));
 let input = "";
 process.stdin.on("data", (d) => (input += d));
@@ -38,6 +39,23 @@ process.stdin.on("end", () => {
   if (mode === "hang") { emit({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "start" } } }); setInterval(() => {}, 1000); return; }
   if (mode === "error") { emit({ type: "result", subtype: "error", is_error: true, result: "Not logged in" }); process.exit(1); }
   const text = "echo:" + input.trim();
+  if (mode === "tools") {
+    // 도구를 쓰는 어시스턴트 턴 → 도구 결과(거부됨) → 최종 답변
+    const root = process.cwd().replace(/\\\\/g, "/");
+    emit({ type: "stream_event", event: { type: "message_start" } });
+    emit({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "읽어볼게요." } } });
+    emit({ type: "assistant", message: { content: [
+      { type: "text", text: "읽어볼게요." },
+      { type: "tool_use", id: "t1", name: "Read", input: { file_path: root + "/STUDY_STATUS.md" } },
+      { type: "tool_use", id: "t2", name: "Write", input: { file_path: root + "/other.md", content: "x" } } ] } });
+    emit({ type: "user", message: { content: [
+      { type: "tool_result", tool_use_id: "t1", content: "ok" },
+      { type: "tool_result", tool_use_id: "t2", is_error: true, content: "Permission to use Write has been denied" } ] } });
+    emit({ type: "stream_event", event: { type: "message_start" } });
+    emit({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "끝났어요." } } });
+    emit({ type: "result", subtype: "success", is_error: false, usage: { input_tokens: 1, output_tokens: 1 } });
+    return;
+  }
   if (mode !== "nostream") {
     emit({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: text.slice(0, 5) } } });
     emit({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: text.slice(5) } } });
@@ -207,6 +225,139 @@ describe.skipIf(process.platform === "win32")("claude code bridge", () => {
     });
     it("알 수 없는 브리지 경로는 404", async () => {
       expect((await request({ path: "/api/claude-code/nope" })).status).toBe(404);
+    });
+  });
+
+  describe("프로젝트 폴더 연결", () => {
+    let proj = "";
+    beforeAll(() => {
+      proj = mkdtempSync(join(tmpdir(), "helpmydoc-proj-"));
+      writeFileSync(join(proj, "CLAUDE.md"), "# 규칙\n항상 표 먼저");
+      writeFileSync(join(proj, "STUDY_STATUS.md"), "Q135");
+    });
+    afterAll(() => rmSync(proj, { recursive: true, force: true }));
+
+    const argsOf = async (project: object | undefined, extra: object = {}) => {
+      const f = join(dir, "args-project.json");
+      const c = join(dir, "cwd-project.txt");
+      process.env.FAKE_ARGS_FILE = f;
+      process.env.FAKE_CWD_FILE = c;
+      const r = await chat({ prompt: "안녕", system: "SYS", project, ...extra });
+      delete process.env.FAKE_CWD_FILE;
+      return {
+        r,
+        args: JSON.parse(readFileSync(f, "utf8")) as string[],
+        cwd: existsSync(c) ? readFileSync(c, "utf8") : "",
+      };
+    };
+
+    it("폴더에서 실행하고 읽기 도구만 연다 (쓰기·셸 없음, 묻지 않고 거부)", async () => {
+      const { r, args, cwd } = await argsOf({ dir: proj });
+      expect(r.status).toBe(200);
+      expect(cwd).toBe(proj);
+      expect(args[args.indexOf("--tools") + 1]).toBe("Read,Glob,Grep");
+      expect(args[args.indexOf("--permission-mode") + 1]).toBe("dontAsk");
+      expect(args).not.toContain("--allowedTools");
+      expect(args).toContain("--strict-mcp-config");
+      expect(args.join(" ")).not.toMatch(/Bash|Write|Edit|WebFetch/);
+    });
+
+    it("허용 경로를 적으면 그 경로에만 쓰기를 연다", async () => {
+      const { args } = await argsOf({ dir: proj, allowWrite: ["quiz/**", "STUDY_STATUS.md"] });
+      expect(args[args.indexOf("--tools") + 1]).toBe("Read,Glob,Grep,Write,Edit");
+      expect(args[args.indexOf("--allowedTools") + 1]).toBe(
+        "Write(quiz/**),Edit(quiz/**),Write(STUDY_STATUS.md),Edit(STUDY_STATUS.md)",
+      );
+    });
+
+    it("시스템 프롬프트에 폴더 안내와 CLAUDE.md 가 들어간다", async () => {
+      const { args } = await argsOf({ dir: proj, allowWrite: ["quiz/**"] });
+      const sys = args[args.indexOf("--append-system-prompt") + 1];
+      expect(sys.startsWith("SYS")).toBe(true);
+      expect(sys).toContain("항상 표 먼저");
+      expect(sys).toContain("ONLY at these paths");
+      expect(sys).toContain("quiz/**");
+      const ro = await argsOf({ dir: proj });
+      expect(ro.args[ro.args.indexOf("--append-system-prompt") + 1]).toContain("read-only");
+    });
+
+    it("project 가 없으면 예전처럼 도구 없이 빈 임시 폴더에서 실행한다", async () => {
+      const { args, cwd } = await argsOf(undefined);
+      expect(args[args.indexOf("--tools") + 1]).toBe("");
+      expect(args).not.toContain("--permission-mode");
+      expect(cwd).not.toBe(proj);
+    });
+
+    it("잘못된 폴더·경로는 400 (실행하지 않는다)", async () => {
+      for (const bad of [
+        { dir: "상대/경로" },
+        { dir: join(proj, "없는폴더") },
+        { dir: join(proj, "CLAUDE.md") }, // 파일
+        { dir: "" },
+        { dir: proj, allowWrite: ["../밖"] },
+        { dir: proj, allowWrite: ["/etc/passwd"] },
+        { dir: proj, allowWrite: ["C:/Windows"] },
+        { dir: proj, allowWrite: ["~/x"] },
+        { dir: proj, allowWrite: ["a;rm -rf"] },
+        { dir: proj, allowWrite: ["quiz/**)"] },
+        { dir: proj, allowWrite: [123] },
+      ]) {
+        const r = await chat({ prompt: "x", project: bad });
+        expect(r.status, JSON.stringify(bad)).toBe(400);
+      }
+    });
+
+    it("Codex 는 프로젝트 폴더를 지원하지 않는다", async () => {
+      const r = await codexChat({ prompt: "x", project: { dir: proj } });
+      expect(r.status).toBe(400);
+    });
+
+    it("도구 사용을 화면에 알리고(폴더 기준 경로), 거부된 도구는 오류로, 여러 턴의 글은 문단으로 이어 붙인다", async () => {
+      process.env.FAKE_MODE = "tools";
+      const r = await chat({ prompt: "x", project: { dir: proj, allowWrite: ["quiz/**"] } });
+      const ev = events(r.text) as Array<{
+        t: string;
+        text?: string;
+        name?: string;
+        target?: string;
+        id?: string;
+        message?: string;
+      }>;
+      const tools = ev.filter((e) => e.t === "tool");
+      expect(tools.map((t) => [t.name, t.target])).toEqual([
+        ["Read", "STUDY_STATUS.md"],
+        ["Write", "other.md"],
+      ]);
+      const err = ev.filter((e) => e.t === "tool_error");
+      expect(err).toHaveLength(1);
+      expect(err[0].id).toBe("t2");
+      expect(err[0].message).toContain("denied");
+      expect(
+        ev
+          .filter((e) => e.t === "text")
+          .map((e) => e.text)
+          .join(""),
+      ).toBe("읽어볼게요.\n\n끝났어요.");
+    });
+
+    it("폴더 확인 API: 있는 폴더는 요약, 없거나 상대 경로는 400", async () => {
+      const ok = await request({ path: `/api/claude-code/project?dir=${encodeURIComponent(proj)}` });
+      expect(ok.status).toBe(200);
+      expect(JSON.parse(ok.text)).toMatchObject({ ok: true, claudeMd: true, git: false });
+      expect(
+        (await request({ path: `/api/claude-code/project?dir=${encodeURIComponent(join(proj, "x"))}` })).status,
+      ).toBe(400);
+      expect((await request({ path: "/api/claude-code/project?dir=relative" })).status).toBe(400);
+      expect((await request({ path: "/api/claude-code/project" })).status).toBe(400);
+      expect((await request({ path: `/api/codex/project?dir=${encodeURIComponent(proj)}` })).status).toBe(404);
+    });
+
+    it("다른 웹사이트에서의 요청은 폴더 확인도 실행도 막힌다 (403)", async () => {
+      const bad = { origin: "https://evil.example" };
+      expect(
+        (await request({ path: `/api/claude-code/project?dir=${encodeURIComponent(proj)}`, headers: bad })).status,
+      ).toBe(403);
+      expect((await chat({ prompt: "x", project: { dir: proj } }, bad)).status).toBe(403);
     });
   });
 

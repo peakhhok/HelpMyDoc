@@ -11,10 +11,13 @@ import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { adapters, resolveAdapterCommand, stripAnsi } from "./adapters.mjs";
+import { ProjectError, describeProject, readClaudeMd, validateProject } from "./project.mjs";
 
 const MAX_BODY = 4 * 1024 * 1024;
 const MAX_CONCURRENT = 2;
 const TIMEOUT_MS = 5 * 60 * 1000;
+/** 프로젝트 폴더 모드는 파일을 여러 번 읽을 수 있어 더 오래 걸릴 수 있다 */
+const PROJECT_TIMEOUT_MS = 15 * 60 * 1000;
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 const MODEL_RE = /^[a-z0-9][a-z0-9.\-\[\]]{0,63}$/i;
 const ROUTE_RE = /^\/api\/([a-z-]+)\/([a-z]+)(?:\?.*)?$/;
@@ -108,16 +111,29 @@ async function chat(adapter, req, res) {
   } catch (e) {
     return json(res, 400, { error: e.message || "잘못된 요청입니다." });
   }
-  const { prompt, system, model } = body ?? {};
+  const { prompt, system, model, project: projectInput } = body ?? {};
   if (typeof prompt !== "string" || !prompt.trim()) return json(res, 400, { error: "prompt 가 필요합니다." });
   if (model != null && model !== "" && (typeof model !== "string" || !MODEL_RE.test(model))) {
     return json(res, 400, { error: "model 값이 올바르지 않습니다." });
   }
   if (running >= MAX_CONCURRENT) return json(res, 429, { error: "동시에 처리할 수 있는 요청 수를 넘었습니다." });
 
-  const cwd = workdirFor(adapter);
+  // 프로젝트 폴더 연결: 그 폴더에서 읽기 도구(와 허용한 경로의 쓰기)를 열어 실행한다.
+  let project = null;
+  let systemText = typeof system === "string" ? system : "";
+  if (projectInput != null) {
+    if (!adapter.supportsProject) return json(res, 400, { error: "이 연결 방식은 프로젝트 폴더를 지원하지 않습니다." });
+    try {
+      project = validateProject(projectInput);
+    } catch (e) {
+      return json(res, e instanceof ProjectError ? e.status : 500, { error: e.message });
+    }
+    systemText += adapter.projectSystem({ ...project, claudeMd: readClaudeMd(project.dir) });
+  }
+
+  const cwd = project ? project.dir : workdirFor(adapter);
   const cli = resolveAdapterCommand(adapter);
-  const args = adapter.buildArgs({ system: typeof system === "string" ? system : "", model });
+  const args = adapter.buildArgs({ system: systemText, model, project });
 
   running++;
   res.writeHead(200, {
@@ -133,8 +149,8 @@ async function chat(adapter, req, res) {
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
-  const timer = setTimeout(() => child.kill("SIGTERM"), TIMEOUT_MS);
-  const state = adapter.newState();
+  const timer = setTimeout(() => child.kill("SIGTERM"), project ? PROJECT_TIMEOUT_MS : TIMEOUT_MS);
+  const state = adapter.newState({ project });
   let buf = "";
   let stderr = "";
   let finished = false;
@@ -185,7 +201,7 @@ async function chat(adapter, req, res) {
   });
 
   child.stdin.on("error", () => {});
-  child.stdin.end(adapter.buildStdin({ prompt, system: typeof system === "string" ? system : "" }));
+  child.stdin.end(adapter.buildStdin({ prompt, system: systemText }));
 }
 
 /** 실패했을 때 보여줄 마지막 출력 한 줄. 링크(일회용 인증 주소)는 가린다. */
@@ -276,6 +292,13 @@ export function claudeCodeBridge(req, res, next) {
       (s) => json(res, 200, s),
       (e) => json(res, 500, { error: String(e) }),
     );
+  } else if (route === "project" && req.method === "GET" && adapter.supportsProject) {
+    const dir = new URL(req.url, "http://localhost").searchParams.get("dir") ?? "";
+    try {
+      json(res, 200, describeProject(dir));
+    } catch (e) {
+      json(res, e instanceof ProjectError ? 400 : 500, { ok: false, error: e.message });
+    }
   } else if (route === "login" && req.method === "POST") {
     login(adapter, res);
   } else if (route === "chat" && req.method === "POST") {

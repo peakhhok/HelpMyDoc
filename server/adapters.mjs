@@ -34,6 +34,16 @@ function pickWindow(w) {
 
 /* ------------------------------------------------------------------ Claude Code */
 
+/** 도구 호출이 건드리는 대상(경로/검색어)을 폴더 기준 짧은 문자열로 */
+function toolTarget(input, cwd) {
+  const raw = input?.file_path ?? input?.path ?? input?.pattern ?? "";
+  if (typeof raw !== "string") return "";
+  let s = raw.replace(/\\/g, "/");
+  const base = cwd ? cwd.replace(/\\/g, "/").replace(/\/$/, "") : "";
+  if (base && s.toLowerCase().startsWith(`${base.toLowerCase()}/`)) s = s.slice(base.length + 1);
+  return s.slice(0, 200);
+}
+
 export const claudeAdapter = {
   id: "claude-code",
   label: "Claude Code",
@@ -62,21 +72,25 @@ export const claudeAdapter = {
   },
 
   // 순수 채팅 용도: 파일/명령 도구, MCP, 슬래시 명령, 프로젝트 설정을 모두 끈다.
-  buildArgs({ system, model }) {
-    const args = [
-      "-p",
-      "--output-format",
-      "stream-json",
-      "--include-partial-messages",
-      "--verbose",
-      "--tools",
-      "",
+  // project 가 있으면(프로젝트 폴더 연결) 읽기 도구만 열고, 허용 경로가 있을 때만 그 경로에 쓰기를 연다.
+  // 셸/웹/MCP 는 열지 않고, 허용하지 않은 것은 묻지 않고 거부한다(dontAsk).
+  buildArgs({ system, model, project }) {
+    const args = ["-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose"];
+    if (project) {
+      const write = project.allowWrite ?? [];
+      args.push("--tools", ["Read", "Glob", "Grep", ...(write.length ? ["Write", "Edit"] : [])].join(","));
+      args.push("--permission-mode", "dontAsk");
+      if (write.length) args.push("--allowedTools", write.flatMap((p) => [`Write(${p})`, `Edit(${p})`]).join(","));
+    } else {
+      args.push("--tools", "");
+    }
+    args.push(
       "--no-session-persistence",
       "--strict-mcp-config",
       "--disable-slash-commands",
       "--setting-sources",
       "user",
-    ];
+    );
     if (typeof system === "string" && system) args.push("--append-system-prompt", system);
     if (model) args.push("--model", model);
     return args;
@@ -84,11 +98,51 @@ export const claudeAdapter = {
 
   buildStdin: ({ prompt }) => prompt,
 
-  newState: () => ({ streamed: false, lastAssistant: "", failure: "" }),
+  /** 프로젝트 폴더를 쓰는 요청인지 (도구 사용을 화면에 알리기 위해) */
+  supportsProject: true,
+
+  /** 프로젝트 폴더 모드에서 시스템 프롬프트에 덧붙이는 안내 (+ 폴더의 CLAUDE.md) */
+  projectSystem({ dir, allowWrite, claudeMd }) {
+    const write = allowWrite.length
+      ? `You may create or edit files ONLY at these paths (relative to the project folder): ${allowWrite.join(", ")}. ` +
+        "Say what you are about to record before writing, and never claim a file was written unless the tool call succeeded. " +
+        "All other files are read-only."
+      : "The folder is read-only: do not claim to have written or changed anything.";
+    return (
+      "\n\n# Project folder\n" +
+      `You are running inside the user's project folder (${dir}). You can read files with Read, Glob and Grep. ` +
+      "You have no shell, web or other tools. Follow the project's own instructions below (CLAUDE.md) and read the files they point to " +
+      "(for example status files) when they are relevant. " +
+      "The PDF reader still provides the page the user is looking at in <document_context>; that is the source for page-based questions. " +
+      write +
+      (claudeMd ? `\n\n<project_instructions source="CLAUDE.md">\n${claudeMd}\n</project_instructions>` : "")
+    );
+  },
+
+  newState: ({ project } = {}) => ({
+    streamed: false,
+    lastAssistant: "",
+    failure: "",
+    cwd: project?.dir ?? "",
+    /** 도구 호출 id → 화면에 보여줄 정보 (결과가 오류면 알리기 위해) */
+    tools: new Map(),
+    /** 여러 번의 어시스턴트 턴(도구 사용 사이)을 이어 붙일 때 문단 구분을 넣기 위함 */
+    needBreak: false,
+  }),
 
   handle(e, state) {
     const out = [];
-    if (e.type === "stream_event" && e.event?.type === "content_block_delta" && e.event.delta?.type === "text_delta") {
+    if (e.type === "stream_event" && e.event?.type === "message_start" && state.streamed) {
+      state.needBreak = true;
+    } else if (
+      e.type === "stream_event" &&
+      e.event?.type === "content_block_delta" &&
+      e.event.delta?.type === "text_delta"
+    ) {
+      if (state.needBreak) {
+        out.push({ t: "text", text: "\n\n" });
+        state.needBreak = false;
+      }
       state.streamed = true;
       out.push({ t: "text", text: e.event.delta.text });
     } else if (e.type === "assistant") {
@@ -96,6 +150,23 @@ export const claudeAdapter = {
         .filter((b) => b.type === "text")
         .map((b) => b.text)
         .join("");
+      // 도구를 쓰는 중이면 무엇을 읽고/쓰는지 화면에 알린다. (프로젝트 폴더 모드)
+      for (const b of e.message?.content ?? []) {
+        if (b.type !== "tool_use") continue;
+        const target = toolTarget(b.input, state.cwd);
+        state.tools.set(b.id, { name: b.name, target });
+        out.push({ t: "tool", id: b.id, name: b.name, target });
+      }
+    } else if (e.type === "user") {
+      for (const b of e.message?.content ?? []) {
+        if (b?.type === "tool_result" && b.is_error && state.tools.has(b.tool_use_id)) {
+          out.push({
+            t: "tool_error",
+            id: b.tool_use_id,
+            message: String(typeof b.content === "string" ? b.content : "").slice(0, 160),
+          });
+        }
+      }
     } else if (e.type === "rate_limit_event") {
       // 구독 한도 사용률(5시간/7일). 사용률과 초기화 시각만 전달하고 그 밖의 필드(세션 ID 등)는 버린다.
       const info = e.rate_limit_info;
