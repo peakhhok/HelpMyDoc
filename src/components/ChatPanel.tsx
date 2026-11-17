@@ -140,6 +140,7 @@ export function ChatPanel({
   const addFiles = async (list: FileList | File[] | null | undefined) => {
     const files = Array.from(list ?? []);
     if (files.length === 0) return;
+    if (!doc) return setAttachNote("먼저 문서를 열어 주세요. 첨부 파일은 열려 있는 문서의 대화에 붙어요.");
     setAttachBusy(true);
     const problems: string[] = [];
     const added: Attachment[] = [];
@@ -508,9 +509,13 @@ export function ChatPanel({
           <button
             type="button"
             className="ghost attach-btn"
-            title="파일 첨부 (문서, md, txt, PDF, PowerPoint, Word …). 이 창에 끌어다 놓아도 돼요"
+            title={
+              doc
+                ? "파일 첨부 (문서, md, txt, PDF, PowerPoint, Word …). 이 창에 끌어다 놓아도 돼요"
+                : "먼저 문서를 열어 주세요"
+            }
             aria-label="파일 첨부"
-            disabled={attachBusy}
+            disabled={attachBusy || !doc}
             onClick={() => attachInput.current?.click()}
           >
             {attachBusy ? "…" : "📎"}

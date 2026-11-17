@@ -9,8 +9,10 @@ export interface VerifyState {
   message?: string;
 }
 
-/** 로그인이 풀린 동안 다시 확인하는 간격 (실패한 요청은 사용량을 쓰지 않는다) */
-const RETRY_WHILE_BROKEN_MS = 10_000;
+/** 로그인이 풀린 동안 다시 확인하는 간격 (실패한 요청은 사용량을 쓰지 않는다). 처음 2분은 촘촘히, 그 뒤로는 드물게 */
+const RETRY_FAST_MS = 10_000;
+const RETRY_SLOW_MS = 60_000;
+const FAST_TRIES = 12;
 /** 창으로 돌아왔을 때 이 시간이 지났으면 다시 확인한다 */
 const REVERIFY_AFTER_MS = 30 * 60_000;
 
@@ -70,13 +72,26 @@ export function useClaudeVerify(opts: { enabled: boolean; onLimits: (l: UsageLim
     };
   }, [enabled, run]);
 
-  // 로그인이 풀린 동안: 다시 로그인했는지 몇 초마다 확인
+  // 로그인이 풀린 동안: 다시 로그인했는지 확인 (계속 실행하지 않도록 시간이 지나면 간격을 늘린다)
+  const tries = useRef(0);
   useEffect(() => {
-    if (!enabled || state.phase !== "auth") return;
-    const id = setInterval(() => {
-      if (document.visibilityState === "visible") void run();
-    }, RETRY_WHILE_BROKEN_MS);
-    return () => clearInterval(id);
+    if (!enabled || state.phase !== "auth") {
+      tries.current = 0;
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => {
+      timer = setTimeout(
+        async () => {
+          tries.current += 1;
+          if (document.visibilityState === "visible") await run();
+          schedule();
+        },
+        tries.current < FAST_TRIES ? RETRY_FAST_MS : RETRY_SLOW_MS,
+      );
+    };
+    schedule();
+    return () => clearTimeout(timer);
   }, [enabled, state.phase, run]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
