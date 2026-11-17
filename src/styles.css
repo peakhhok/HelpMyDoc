@@ -1035,3 +1035,8 @@ a {
   align-self: flex-end;
   padding: 6px 8px;
 }
+
+/* 보낸 메시지 머리줄의 쪽 링크가 붙어 보이지 않게 */
+.ref .pagelink {
+  margin-left: 6px;
+}
