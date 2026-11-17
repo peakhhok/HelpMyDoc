@@ -84,6 +84,15 @@ describe("readAttachment", () => {
     expect(a.text).toContain("엔드포인트 정책은 IAM 정책과 별개로 평가된다");
   });
 
+  it("확장자가 없어도(링크·복사본) 내용으로 Word/PowerPoint 를 알아본다", async () => {
+    const w = await readAttachment(file("my-link", fixture("./fixtures/sample.docx")));
+    expect(w.text).toContain("# VPC Endpoint 정리");
+    const p = await readAttachment(file("slides (1)", fixture("./pptx/fixtures/lecture.pptx")));
+    expect(p.text).toContain("--- 슬라이드 1 ---");
+    // 글 속에 '%PDF-' 가 들어 있는 글 파일은 PDF 로 오해하지 않는다
+    expect((await readAttachment(file("memo.txt", "형식은 %PDF- 로 시작해요"))).text).toContain("%PDF-");
+  });
+
   it("손상된 Word 파일은 안내 문구", async () => {
     await expect(readAttachment(file("bad.docx", "not a zip"))).rejects.toThrow(/docx/);
   });

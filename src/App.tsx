@@ -26,6 +26,7 @@ import { useScan } from "./lib/useScan";
 import type { UiMessage } from "./lib/history";
 import { sanitizeAttachments, type Attachment } from "./lib/attach";
 import { pdfSource, pptxSource, type DocSource } from "./lib/docSource";
+import { detectKind, unsupportedMessage } from "./lib/fileKind";
 import { openPdf } from "./lib/pdf";
 import { getProvider } from "./lib/providers";
 import { loadSettings, saveSettings, type ProviderId, type Settings } from "./lib/settings";
@@ -278,26 +279,44 @@ export default function App() {
   const scanUnavailable = scanProvider.unavailableReason({ settings, bridge, codex });
   const scanner = useScan({ doc, fileName, settings, unavailable: scanUnavailable, scan, changeScan, onLimits });
 
-  const openFile = async (file: File | undefined) => {
-    if (!file) return;
-    const lower = file.name.toLowerCase();
-    const isPdf = file.type === "application/pdf" || lower.endsWith(".pdf");
-    const isPptx = lower.endsWith(".pptx");
-    if (!isPdf && !isPptx) {
-      setLoadError(
-        lower.endsWith(".ppt")
-          ? "옛 PowerPoint(.ppt)는 열 수 없어요. PowerPoint에서 .pptx 또는 PDF로 저장해서 열어 주세요."
-          : "PDF 또는 PowerPoint(.pptx) 파일만 열 수 있습니다.",
-      );
+  /**
+   * 끌어다 놓거나 고른 파일 중 열 수 있는 첫 번째를 연다. 종류는 이름만이 아니라 내용으로도 알아본다.
+   * 열 수 없으면 이유를 화면에 보여 준다. (이미 문서가 열려 있어도 보이도록 배너로)
+   */
+  const openFiles = async (list: ArrayLike<File> | null | undefined) => {
+    const files = Array.from(list ?? []);
+    if (files.length === 0) return;
+    let problem: string | null = null;
+    for (const file of files) {
+      let buffer: ArrayBuffer;
+      try {
+        buffer = await file.arrayBuffer();
+      } catch {
+        problem ??= `"${file.name}"을(를) 읽지 못했어요.`;
+        continue;
+      }
+      const found = detectKind(file.name, new Uint8Array(buffer));
+      if ("unsupported" in found) {
+        problem ??= unsupportedMessage(found.unsupported, file.name);
+        continue;
+      }
+      if (found.kind === "docx") {
+        problem ??= unsupportedMessage("doc", file.name);
+        continue;
+      }
+      await openBuffer(file.name, buffer, found.kind);
       return;
     }
+    setLoadError(problem ?? "열 수 있는 파일이 없어요.");
+  };
+  const openFile = (file: File | undefined) => openFiles(file ? [file] : undefined);
+
+  const openBuffer = async (fileName: string, buffer: ArrayBuffer, kind: "pdf" | "pptx") => {
+    const isPptx = kind === "pptx";
     try {
       setLoadError(null);
-      const buffer = await file.arrayBuffer();
-      // 이름이 아니라 파일 내용의 해시로 같은 문서인지 알아본다.
-      // (pdf.js 는 버퍼를 워커로 넘겨 쓸 수 없게 만들 수 있으므로 해시를 먼저 계산한다)
       const hash = await sha256Hex(buffer);
-      const next = isPptx ? pptxSource(buffer, hash ?? file.name) : pdfSource(await openPdf(buffer));
+      const next = isPptx ? pptxSource(buffer, hash ?? fileName) : pdfSource(await openPdf(buffer));
       const id = hash ?? next.key;
       const record = settingsRef.current.saveHistory && id ? await loadDoc(id) : undefined;
       const lastPage = Math.min(Math.max(1, record?.lastPage ?? 1), next.numPages);
@@ -307,7 +326,7 @@ export default function App() {
       docRef.current = next;
       // 한 번에 반영해야 채팅창이 저장된 대화로 시작하고 뷰어가 저장된 페이지로 열린다.
       setDoc(next);
-      setFileName(file.name);
+      setFileName(fileName);
       setDocId(id);
       setRestored({
         messages: record?.messages ?? [],
@@ -362,7 +381,13 @@ export default function App() {
       e.preventDefault();
       setDragOver(false);
       if (inChat(e)) return;
-      openFile(e.dataTransfer?.files?.[0]);
+      const dt = e.dataTransfer;
+      // 일부 앱(메신저, 메일 등)에서 끌어온 파일은 files 가 비고 items 에만 들어 있다.
+      const fromItems = Array.from(dt?.items ?? [])
+        .filter((it) => it.kind === "file")
+        .map((it) => it.getAsFile())
+        .filter((f): f is File => !!f);
+      void openFiles(dt?.files?.length ? dt.files : fromItems);
     };
     window.addEventListener("dragover", over);
     window.addEventListener("dragleave", leave);
@@ -516,6 +541,14 @@ export default function App() {
       </header>
 
       <UpdateBanner />
+      {loadError && doc && (
+        <div className="banner" role="alert">
+          <span>{loadError}</span>
+          <button type="button" className="small" onClick={() => setLoadError(null)}>
+            닫기
+          </button>
+        </div>
+      )}
 
       <main className="split" style={{ gridTemplateColumns: `1fr 6px ${chatWidth}px` }}>
         <section className="left" ref={leftRef}>

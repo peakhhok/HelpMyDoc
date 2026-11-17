@@ -2,6 +2,7 @@
 // 이미지·압축 파일 같은 것은 읽을 수 없다고 알려 준다. 여기서 만든 글이 질문에 함께 전송된다.
 import { strFromU8, unzipSync } from "fflate";
 import { parsePptx } from "./pptx/parse";
+import { sniffKind } from "./fileKind";
 import { descendants, kids, name, parseXml, type El } from "./pptx/xml";
 
 export interface Attachment {
@@ -165,8 +166,10 @@ export async function readAttachment(file: File): Promise<Attachment> {
   const ext = extOf(file.name);
   const buffer = await file.arrayBuffer();
   let text: string;
+  // 확장자가 없거나 낯선 이름(링크, 복사본 …)이어도 내용으로 PDF/PowerPoint/Word 를 알아본다.
+  const kind = sniffKind(new Uint8Array(buffer)) ?? (ext === "pdf" || ext === "pptx" || ext === "docx" ? ext : null);
 
-  if (ext === "pdf") {
+  if (kind === "pdf") {
     // pdf.js 는 PDF 를 올릴 때만 불러온다.
     const { openPdf, getPageText } = await import("./pdf");
     const pdf = await openPdf(buffer);
@@ -181,10 +184,10 @@ export async function readAttachment(file: File): Promise<Attachment> {
     } finally {
       void pdf.loadingTask.destroy();
     }
-  } else if (ext === "pptx") {
+  } else if (kind === "pptx") {
     const deck = parsePptx(buffer);
     text = deck.slides.map((s) => `--- 슬라이드 ${s.number} ---\n${s.text}`).join("\n\n");
-  } else if (ext === "docx") {
+  } else if (kind === "docx") {
     text = docxToText(buffer);
   } else if (ext === "doc" || ext === "ppt" || ext === "hwp" || ext === "hwpx" || ext === "xls" || ext === "xlsx") {
     throw new Error(`${file.name}: 이 형식은 아직 읽지 못해요. PDF나 글 파일로 저장해서 올려 주세요.`);
