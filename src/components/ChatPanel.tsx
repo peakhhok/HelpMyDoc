@@ -11,8 +11,9 @@ import { fitAttachments, readAttachment, type Attachment } from "../lib/attach";
 import { buildPrompt, type RelatedEntry } from "../lib/context";
 import { buildOverview, digestMap, type ScanData } from "../lib/scan";
 import { isAuthError } from "../lib/verify";
-import { projectFromSettings, projectName } from "../lib/project";
+import { projectFromValues, projectName, type ProjectValues } from "../lib/project";
 import { GitDialog } from "./GitDialog";
+import { ProjectDialog } from "./ProjectDialog";
 import type { VerifyPhase } from "../lib/useVerify";
 import { bestExcerpt, findRelated, type PageIndex } from "../lib/related";
 import { updateDoc } from "../lib/docStore";
@@ -58,6 +59,11 @@ interface Props {
   verifyPhase: VerifyPhase;
   /** 질문 중에 로그인이 풀렸다는 오류를 만났을 때 */
   onAuthFailed: (message: string) => void;
+  /** 이 문서에 적용되는 프로젝트 폴더 설정과, 그것이 이 문서만의 설정인지 */
+  projectValues: ProjectValues;
+  projectIsCustom: boolean;
+  onProjectSave: (values: ProjectValues, asDefault: boolean) => void;
+  onProjectUseDefault: () => void;
   /** 문서 스캔 결과, 페이지 메모, 형광펜 (질문에 함께 보낼 수 있다) */
   scan: ScanData | null;
   notes: Record<number, string>;
@@ -93,6 +99,10 @@ export function ChatPanel({
   onLimitsMissing,
   verifyPhase,
   onAuthFailed,
+  projectValues,
+  projectIsCustom,
+  onProjectSave,
+  onProjectUseDefault,
   scan,
   notes,
   highlights,
@@ -115,8 +125,9 @@ export function ChatPanel({
   }, [messages]);
 
   const provider = getProvider(settings.provider);
-  const project = projectFromSettings(settings);
+  const project = projectFromValues(projectValues);
   const [showGit, setShowGit] = useState(false);
+  const [showProject, setShowProject] = useState(false);
   const persist = settings.saveHistory && !!docId && !!doc;
   // 사용 중에 Claude Code 연결이 끊기면(로그아웃 등) 화면을 막지 않고 배너로 알린다.
   const setupStep = evaluateSetup(bridge).step;
@@ -245,6 +256,7 @@ export function ChatPanel({
 
       // 이전 턴은 질문 원문만, 이번 턴에만 현재 페이지 문맥을 붙인다.
       await provider.stream(settings, {
+        project,
         // 화면에는 전체 대화가 남지만, AI 에게는 최근 대화만 보내 비용이 계속 늘지 않게 한다.
         history: trimHistory(history.map(({ role, content }) => ({ role, content }))),
         prompt: ctx.prompt,
@@ -336,11 +348,21 @@ export function ChatPanel({
         {provider.id === "claude-code" && (
           <LimitsBadge limits={limits} missing={limitsMissing} version={bridge?.version?.split(" ")[0]} />
         )}
+        {provider.id === "claude-code" && doc && !project && (
+          <button
+            type="button"
+            className="ghost small project-chip"
+            onClick={() => setShowProject(true)}
+            title="내 PC의 폴더를 이 문서에 연결해서 AI가 폴더의 파일을 읽게 해요"
+          >
+            📁 폴더 연결
+          </button>
+        )}
         {provider.id === "claude-code" && project && (
           <button
             type="button"
             className="ghost small project-chip"
-            onClick={() => onOpenSettings("claude-code")}
+            onClick={() => setShowProject(true)}
             title={`프로젝트 폴더: ${project.dir}\n${project.allowWrite.length ? `쓰기 허용: ${project.allowWrite.join(", ")}` : "읽기 전용"}`}
           >
             📁 {projectName(project.dir)}
@@ -593,6 +615,22 @@ export function ChatPanel({
           )}
         </div>
       </div>
+      {showProject && (
+        <ProjectDialog
+          values={projectValues}
+          isCustom={projectIsCustom}
+          fileName={fileName}
+          onSave={(v, asDefault) => {
+            onProjectSave(v, asDefault);
+            setShowProject(false);
+          }}
+          onUseDefault={() => {
+            onProjectUseDefault();
+            setShowProject(false);
+          }}
+          onClose={() => setShowProject(false)}
+        />
+      )}
       {showGit && project && project.branch && (
         <GitDialog dir={project.dir} branch={project.branch} onClose={() => setShowGit(false)} />
       )}

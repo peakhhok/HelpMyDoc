@@ -105,4 +105,18 @@ describe("docStore", () => {
     expect(cleared?.highlights).toEqual([]);
     expect(cleared?.notes).toEqual({});
   });
+
+  it("문서별 프로젝트 설정은 다른 필드를 저장해도 남고, null 로 지우면 기본값 사용", async () => {
+    const project = { dir: "C:\\SCS", write: "notes/memo.md", git: true, branch: "main" };
+    await updateDoc("fp", meta, { project });
+    await updateDoc("fp", meta, { lastPage: 3 });
+    await updateDoc("fp", meta, { messages: [m("q")] });
+    expect((await loadDoc("fp"))?.project).toEqual(project);
+    await updateDoc("fp", meta, { project: null });
+    expect((await loadDoc("fp"))?.project).toBeNull();
+    // 다른 문서에는 영향이 없다
+    await updateDoc("other", meta, { project });
+    await updateDoc("fp", meta, { project: { ...project, dir: "" } });
+    expect((await loadDoc("other"))?.project?.dir).toBe("C:\\SCS");
+  });
 });

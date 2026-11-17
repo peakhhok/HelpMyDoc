@@ -3,6 +3,7 @@
 // PDF 파일 자체와 추출한 텍스트는 저장하지 않는다.
 import type { Highlight } from "./annotations";
 import type { UiMessage } from "./history";
+import type { ProjectValues } from "./project";
 import type { ScanData } from "./scan";
 
 export interface DocRecord {
@@ -19,6 +20,8 @@ export interface DocRecord {
   notes?: Record<number, string>;
   /** 문서 스캔 결과(구간별 요약) */
   scan?: ScanData | null;
+  /** 이 문서의 프로젝트 폴더 설정 (없으면 설정의 기본값을 쓴다. dir 이 비어 있으면 이 문서는 연결하지 않음) */
+  project?: ProjectValues | null;
   updatedAt: number;
 }
 
@@ -96,6 +99,7 @@ export async function updateDoc(
     highlights?: Highlight[];
     notes?: Record<number, string>;
     scan?: ScanData | null;
+    project?: ProjectValues | null;
   },
 ): Promise<void> {
   const db = await openDb();
@@ -118,6 +122,7 @@ export async function updateDoc(
           highlights: patch.highlights ?? cur?.highlights,
           notes: patch.notes ?? cur?.notes,
           scan: patch.scan === undefined ? cur?.scan : patch.scan,
+          project: patch.project === undefined ? cur?.project : patch.project,
           updatedAt: Date.now(),
         } satisfies DocRecord);
       };

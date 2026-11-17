@@ -108,7 +108,7 @@ export function useScan({ doc, fileName, settings, unavailable, scan, changeScan
             signal,
             onText: (d) => (out += d),
             onLimits,
-            useProject: false, // 스캔은 문서 글만 읽으면 되므로 프로젝트 폴더를 열지 않는다
+            // project 를 넘기지 않는다: 스캔은 문서 글만 읽으면 되므로 프로젝트 폴더를 열지 않는다
           });
           return out;
         },

@@ -12,7 +12,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { adapters, resolveAdapterCommand, stripAnsi } from "./adapters.mjs";
 import { GitError, currentBranch, gitStatus, gitSync } from "./git.mjs";
-import { ProjectError, describeProject, exactFiles, readClaudeMd, validateProject } from "./project.mjs";
+import {
+  ProjectError,
+  createClaudeMd,
+  describeProject,
+  exactFiles,
+  readClaudeMd,
+  validateProject,
+} from "./project.mjs";
 
 const MAX_BODY = 4 * 1024 * 1024;
 const MAX_CONCURRENT = 2;
@@ -214,6 +221,25 @@ async function chat(adapter, req, res) {
   child.stdin.end(adapter.buildStdin({ prompt, system: systemText }));
 }
 
+/** 프로젝트 폴더에 CLAUDE.md 예시를 만든다: { dir, template }. 이미 있으면 거절(덮어쓰지 않음). */
+async function initRoute(req, res) {
+  if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) {
+    return json(res, 415, { error: "application/json 만 허용됩니다." });
+  }
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (e) {
+    return json(res, 400, { error: e.message || "잘못된 요청입니다." });
+  }
+  try {
+    json(res, 200, createClaudeMd(body?.dir, body?.template));
+  } catch (e) {
+    if (e instanceof ProjectError) return json(res, e.status, { ok: false, error: e.message });
+    throw e;
+  }
+}
+
 /** 동기화(pull → push)는 한 번에 하나만 */
 let gitBusy = false;
 
@@ -347,6 +373,11 @@ export function claudeCodeBridge(req, res, next) {
     } catch (e) {
       json(res, e instanceof ProjectError ? 400 : 500, { ok: false, error: e.message });
     }
+  } else if (route === "init" && req.method === "POST" && adapter.supportsProject) {
+    initRoute(req, res).catch((e) => {
+      if (!res.headersSent) json(res, 500, { ok: false, error: String(e?.message ?? e) });
+      else res.end();
+    });
   } else if (route === "git" && req.method === "POST" && adapter.supportsProject) {
     gitRoute(req, res).catch((e) => {
       if (!res.headersSent) json(res, 500, { ok: false, error: String(e?.message ?? e) });

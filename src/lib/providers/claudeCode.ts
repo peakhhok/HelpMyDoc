@@ -1,6 +1,5 @@
 import { SYSTEM_PROMPT, type ChatMessage } from "../anthropicApi";
 import { streamClaudeCode } from "../bridgeClient";
-import { projectFromSettings } from "../project";
 import { CC_MODELS } from "../settings";
 import type { Provider } from "./types";
 
@@ -36,6 +35,6 @@ export const claudeCodeProvider: Provider = {
       onUsage: req.onUsage,
       onLimits: req.onLimits,
       onTool: req.onTool,
-      project: req.useProject === false ? undefined : (projectFromSettings(settings) ?? undefined),
+      project: req.project ?? undefined,
     }),
 };

@@ -20,6 +20,7 @@ import {
 } from "./lib/annotations";
 import { loadDoc, updateDoc } from "./lib/docStore";
 import { sanitizeScan, type ScanData } from "./lib/scan";
+import { sanitizeProjectValues, valuesFromSettings, type ProjectValues } from "./lib/project";
 import { useDocIndex } from "./lib/useDocIndex";
 import { useClaudeVerify } from "./lib/useVerify";
 import { useScan } from "./lib/useScan";
@@ -46,6 +47,8 @@ export default function App() {
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [notes, setNotes] = useState<Record<number, string>>({});
   const [scan, setScan] = useState<ScanData | null>(null);
+  /** 이 문서만의 프로젝트 폴더 설정 (null 이면 설정의 기본값을 쓴다) */
+  const [docProject, setDocProject] = useState<ProjectValues | null>(null);
   const [penColor, setPenColor] = useState<HlColor | null>(null);
   const [rightTab, setRightTab] = useState<"chat" | "notes">("chat");
   const [showScan, setShowScan] = useState(false);
@@ -203,7 +206,12 @@ export default function App() {
   };
 
   // 형광펜·메모·스캔 결과를 바꿀 때마다 잠시 뒤 이 문서의 기록에 저장한다 (기록 저장을 껐으면 저장하지 않는다).
-  const ann = useRef({ highlights, notes, scan });
+  const ann = useRef<{
+    highlights: Highlight[];
+    notes: Record<number, string>;
+    scan: ScanData | null;
+    project: ProjectValues | null;
+  }>({ highlights, notes, scan, project: null });
   const annTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const annPending = useRef<(() => void) | null>(null);
   /** 아직 저장하지 않은 변경이 있으면 지금 바로 저장한다 (다른 문서를 열거나 창을 닫기 전) */
@@ -243,6 +251,14 @@ export default function App() {
       else delete next[pg];
       ann.current.notes = next;
       setNotes(next);
+      saveAnn();
+    },
+    [saveAnn],
+  );
+  const changeProject = useCallback(
+    (next: ProjectValues | null) => {
+      ann.current.project = next;
+      setDocProject(next);
       saveAnn();
     },
     [saveAnn],
@@ -328,7 +344,9 @@ export default function App() {
         highlights: sanitizeHighlights(record?.highlights),
         notes: sanitizeNotes(record?.notes),
         scan: sanitizeScan(record?.scan),
+        project: sanitizeProjectValues(record?.project),
       };
+      setDocProject(ann.current.project);
       setHighlights(ann.current.highlights);
       setNotes(ann.current.notes);
       setScan(ann.current.scan);
@@ -604,6 +622,23 @@ export default function App() {
               onOpenSettings={openSettings}
               onSwitchProvider={switchProvider}
               onOpenSetup={() => setForceSetup(true)}
+              projectValues={docProject ?? valuesFromSettings(settings)}
+              projectIsCustom={docProject !== null}
+              onProjectSave={(v, asDefault) => {
+                changeProject(v);
+                if (asDefault) {
+                  const next = {
+                    ...settings,
+                    projectDir: v.dir,
+                    projectWrite: v.write,
+                    projectGit: v.git,
+                    projectBranch: v.branch,
+                  };
+                  setSettings(next);
+                  saveSettings(next);
+                }
+              }}
+              onProjectUseDefault={() => changeProject(null)}
               verifyPhase={verify.state.phase}
               onAuthFailed={(message) => {
                 verify.markAuthFailed(message);

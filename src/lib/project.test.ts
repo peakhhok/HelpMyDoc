@@ -5,7 +5,11 @@ import {
   isSafeWritePattern,
   parseWritePaths,
   projectFromSettings,
+  NO_PROJECT,
+  projectFromValues,
   projectName,
+  sanitizeProjectValues,
+  valuesFromSettings,
 } from "./project";
 
 describe("쓰기 허용 경로", () => {
@@ -67,5 +71,26 @@ describe("projectFromSettings", () => {
   it("폴더 이름", () => {
     expect(projectName("C:\\Users\\peakh\\바탕 화면\\SCS")).toBe("SCS");
     expect(projectName("/home/u/scs/")).toBe("scs");
+  });
+});
+
+describe("문서별 프로젝트 설정 값", () => {
+  it("설정의 기본값에서 값을 만들고, 값에서 실행용 설정을 만든다", () => {
+    const v = valuesFromSettings({
+      projectDir: "C:\\A",
+      projectWrite: "notes/**",
+      projectGit: true,
+      projectBranch: "main",
+    });
+    expect(v).toEqual({ dir: "C:\\A", write: "notes/**", git: true, branch: "main" });
+    expect(projectFromValues(v)).toEqual({ dir: "C:\\A", allowWrite: ["notes/**"], git: true, branch: "main" });
+    expect(projectFromValues(NO_PROJECT)).toBeNull();
+  });
+  it("저장된 값이 깨져 있으면 null(기본값 사용), 일부만 있으면 채운다", () => {
+    expect(sanitizeProjectValues(undefined)).toBeNull();
+    expect(sanitizeProjectValues("x")).toBeNull();
+    expect(sanitizeProjectValues({ write: "x" })).toBeNull();
+    expect(sanitizeProjectValues({ dir: "C:\\B" })).toEqual({ dir: "C:\\B", write: "", git: false, branch: "" });
+    expect(sanitizeProjectValues({ dir: "", git: true })).toEqual({ dir: "", write: "", git: true, branch: "" }); // 이 문서는 연결 안 함
   });
 });

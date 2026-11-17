@@ -415,6 +415,65 @@ describe.skipIf(process.platform === "win32")("claude code bridge", () => {
       });
     });
 
+    describe("CLAUDE.md 예시 만들기", () => {
+      let empty = "";
+      beforeAll(() => {
+        empty = mkdtempSync(join(tmpdir(), "helpmydoc-init-"));
+      });
+      afterAll(() => rmSync(empty, { recursive: true, force: true }));
+      const init = (body: object, headers: Record<string, string> = {}) =>
+        request({
+          method: "POST",
+          path: "/api/claude-code/init",
+          headers: { "content-type": "application/json", ...headers },
+          body: JSON.stringify(body),
+        });
+
+      it("폴더에 CLAUDE.md 예시를 만들고, 이미 있으면 덮어쓰지 않는다", async () => {
+        const r = await init({ dir: empty, template: "study" });
+        expect(r.status).toBe(200);
+        const text = readFileSync(join(empty, "CLAUDE.md"), "utf8");
+        expect(text).toContain("공부 자료 폴더 안내");
+        expect(text).toContain("push는 하지 않아요");
+        writeFileSync(join(empty, "CLAUDE.md"), "내가 고친 내용");
+        const again = await init({ dir: empty, template: "reference" });
+        expect(again.status).toBe(400);
+        expect(JSON.parse(again.text).error).toContain("덮어쓰지 않아요");
+        expect(readFileSync(join(empty, "CLAUDE.md"), "utf8")).toBe("내가 고친 내용");
+      });
+
+      it("읽기 전용 참고 자료 예시도 만들 수 있고, 잘못된 요청은 막는다", async () => {
+        const d = mkdtempSync(join(tmpdir(), "helpmydoc-init2-"));
+        expect((await init({ dir: d, template: "reference" })).status).toBe(200);
+        expect(readFileSync(join(d, "CLAUDE.md"), "utf8")).toContain("읽기만");
+        rmSync(d, { recursive: true, force: true });
+        expect((await init({ dir: empty, template: "nope" })).status).toBe(400);
+        expect((await init({ dir: "상대/경로", template: "study" })).status).toBe(400);
+        expect((await init({ dir: join(empty, "없음"), template: "study" })).status).toBe(400);
+        expect(
+          (
+            await request({
+              method: "POST",
+              path: "/api/claude-code/init",
+              headers: { "content-type": "text/plain" },
+              body: "x",
+            })
+          ).status,
+        ).toBe(415);
+        expect((await init({ dir: empty, template: "study" }, { origin: "https://evil.example" })).status).toBe(403);
+        expect(
+          (
+            await request({
+              method: "POST",
+              path: "/api/codex/init",
+              headers: { "content-type": "application/json" },
+              body: "{}",
+            })
+          ).status,
+        ).toBe(404);
+      });
+    });
+
     describe("앱 버튼용 git API", () => {
       const gitPost = (body: object, headers: Record<string, string> = {}) =>
         request({

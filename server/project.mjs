@@ -4,9 +4,10 @@
 // 안전 원칙
 //  - 읽기 도구(Read/Glob/Grep)만 기본으로 준다. 쓰기는 사용자가 허용 경로를 적었을 때 그 경로에만 준다.
 //  - 셸(Bash)과 웹, MCP 는 주지 않는다. 폴더 밖 파일은 권한이 없어 거부된다. (--permission-mode dontAsk)
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { BRANCH_RE } from "./git.mjs";
+import { TEMPLATES } from "./templates.mjs";
 
 const MAX_CLAUDE_MD = 40_000;
 /** 쓰기를 허용할 경로(폴더 기준 상대 경로, 글롭 가능) 하나의 모양 */
@@ -95,4 +96,22 @@ export function describeProject(input) {
     claudeMd: existsSync(join(ok, "CLAUDE.md")),
     git: existsSync(join(ok, ".git")),
   };
+}
+
+/**
+ * 폴더에 CLAUDE.md 예시를 만든다. 이미 있으면 만들지 않는다. (덮어쓰기 금지)
+ * 파일을 여는 방식 'wx' 는 "없을 때만 만들기"라서, 확인과 쓰기 사이에 생긴 파일도 덮어쓰지 않는다.
+ */
+export function createClaudeMd(dirInput, templateId) {
+  const { dir } = validateProject({ dir: dirInput });
+  const t = Object.hasOwn(TEMPLATES, templateId) ? TEMPLATES[templateId] : null;
+  if (!t) throw new ProjectError("알 수 없는 예시예요.");
+  const path = join(dir, "CLAUDE.md");
+  try {
+    writeFileSync(path, t.body, { encoding: "utf8", flag: "wx" });
+  } catch (e) {
+    if (e?.code === "EEXIST") throw new ProjectError("이미 CLAUDE.md 가 있어요. 덮어쓰지 않아요.");
+    throw new ProjectError(`CLAUDE.md 를 만들지 못했어요: ${e?.code ?? e?.message ?? e}`);
+  }
+  return { ok: true, path };
 }

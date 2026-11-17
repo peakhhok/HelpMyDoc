@@ -221,5 +221,24 @@ export async function gitAction(
   }
 }
 
+/** 프로젝트 폴더에 CLAUDE.md 예시를 만든다. (이미 있으면 서버가 거절하고 덮어쓰지 않는다) */
+export async function createClaudeMdTemplate(
+  dir: string,
+  template: "study" | "reference",
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch("/api/claude-code/init", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ dir, template }),
+    });
+    const j = await res.json().catch(() => null);
+    if (res.ok && j?.ok) return { ok: true };
+    return { ok: false, error: j?.error ?? `만들지 못했어요 (${res.status})` };
+  } catch {
+    return { ok: false, error: "앱 안의 브리지에 연결하지 못했어요. 앱을 다시 켜 보세요." };
+  }
+}
+
 /** 이전 이름 호환: Claude Code */
 export const streamClaudeCode = (opts: StreamCliOptions) => streamCli("claude-code", opts);

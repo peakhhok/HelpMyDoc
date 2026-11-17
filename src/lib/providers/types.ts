@@ -1,5 +1,6 @@
 import type { ChatMessage } from "../anthropicApi";
 import type { BridgeStatus, ToolEvent } from "../bridgeClient";
+import type { ProjectConfig } from "../project";
 import type { ProviderId, Settings } from "../settings";
 import type { TurnUsage, UsageLimits } from "../usage";
 
@@ -18,8 +19,8 @@ export interface ProviderRequest {
   onNotice?: (text: string) => void;
   /** 프로젝트 폴더 모드에서 AI 가 파일을 읽거나 쓸 때 (Claude Code 만) */
   onTool?: (tool: ToolEvent) => void;
-  /** false 면 연결된 프로젝트 폴더를 쓰지 않는다 (문서 스캔처럼 폴더가 필요 없는 요청). 기본은 true */
-  useProject?: boolean;
+  /** 이 문서에 연결된 프로젝트 폴더 (없으면 null). 문서 스캔처럼 폴더가 필요 없는 요청은 넘기지 않는다 */
+  project?: ProjectConfig | null;
 }
 
 export interface ProviderEnv {
