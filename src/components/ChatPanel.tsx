@@ -11,6 +11,7 @@ import { fitAttachments, readAttachment, type Attachment } from "../lib/attach";
 import { buildPrompt, type RelatedEntry } from "../lib/context";
 import { buildOverview, digestMap, type ScanData } from "../lib/scan";
 import { isAuthError } from "../lib/verify";
+import { projectFromSettings, projectName } from "../lib/project";
 import type { VerifyPhase } from "../lib/useVerify";
 import { bestExcerpt, findRelated, type PageIndex } from "../lib/related";
 import { updateDoc } from "../lib/docStore";
@@ -64,6 +65,9 @@ interface Props {
   getIndex: () => Promise<PageIndex | null>;
 }
 
+const toolIcon = (name?: string) =>
+  name === "Write" || name === "Edit" ? "✏️" : name === "Grep" ? "🔍" : name === "Glob" ? "🗂" : "📖";
+
 const QUICK_PROMPTS = ["여기서 중요한 부분을 요약해줘", "이 페이지를 쉽게 설명해줘", "핵심 개념을 정리해줘"];
 
 export function ChatPanel({
@@ -110,6 +114,7 @@ export function ChatPanel({
   }, [messages]);
 
   const provider = getProvider(settings.provider);
+  const project = projectFromSettings(settings);
   const persist = settings.saveHistory && !!docId && !!doc;
   // 사용 중에 Claude Code 연결이 끊기면(로그아웃 등) 화면을 막지 않고 배너로 알린다.
   const setupStep = evaluateSetup(bridge).step;
@@ -246,6 +251,18 @@ export function ChatPanel({
           sawLimits = true;
           onLimits(l);
         },
+        onTool: (tool) =>
+          setMessages((cur) => {
+            const next = cur.slice();
+            const last = next[next.length - 1];
+            if (last?.role !== "assistant") return cur;
+            const tools = (last.tools ?? []).slice();
+            const i = tools.findIndex((t) => t.id === tool.id);
+            if (i >= 0) tools[i] = { ...tools[i], ...tool };
+            else tools.push(tool);
+            next[next.length - 1] = { ...last, tools };
+            return next;
+          }),
         onNotice: (notice) =>
           setMessages((cur) => {
             const next = cur.slice();
@@ -316,6 +333,17 @@ export function ChatPanel({
         <span className="muted">{provider.describe(settings)}</span>
         {provider.id === "claude-code" && (
           <LimitsBadge limits={limits} missing={limitsMissing} version={bridge?.version?.split(" ")[0]} />
+        )}
+        {provider.id === "claude-code" && project && (
+          <button
+            type="button"
+            className="ghost small project-chip"
+            onClick={() => onOpenSettings("claude-code")}
+            title={`프로젝트 폴더: ${project.dir}\n${project.allowWrite.length ? `쓰기 허용: ${project.allowWrite.join(", ")}` : "읽기 전용"}`}
+          >
+            📁 {projectName(project.dir)}
+            {project.allowWrite.length > 0 ? " · ✏️ 쓰기" : " · 읽기"}
+          </button>
         )}
         {provider.id === "claude-code" && verifyPhase === "checking" && (
           <span className="muted small-text" role="status">
@@ -414,6 +442,16 @@ export function ChatPanel({
               )
             ) : (
               <div className="plain">{m.content}</div>
+            )}
+            {m.role === "assistant" && m.tools && m.tools.length > 0 && (
+              <ul className="tool-log" aria-label="AI가 폴더에서 한 일">
+                {m.tools.map((t) => (
+                  <li key={t.id} className={t.error ? "bad" : ""} title={t.error}>
+                    {toolIcon(t.name)} {t.name} <code>{t.target}</code>
+                    {t.error && <span> · 거부됨(허용된 경로가 아니에요)</span>}
+                  </li>
+                ))}
+              </ul>
             )}
             {m.role === "assistant" && m.usage && (
               <div

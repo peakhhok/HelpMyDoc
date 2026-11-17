@@ -40,6 +40,7 @@ function toolTarget(input, cwd) {
   if (typeof raw !== "string") return "";
   let s = raw.replace(/\\/g, "/");
   const base = cwd ? cwd.replace(/\\/g, "/").replace(/\/$/, "") : "";
+  if (base && s.toLowerCase() === base.toLowerCase()) return ".";
   if (base && s.toLowerCase().startsWith(`${base.toLowerCase()}/`)) s = s.slice(base.length + 1);
   return s.slice(0, 200);
 }

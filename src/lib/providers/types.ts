@@ -1,5 +1,5 @@
 import type { ChatMessage } from "../anthropicApi";
-import type { BridgeStatus } from "../bridgeClient";
+import type { BridgeStatus, ToolEvent } from "../bridgeClient";
 import type { ProviderId, Settings } from "../settings";
 import type { TurnUsage, UsageLimits } from "../usage";
 
@@ -16,6 +16,10 @@ export interface ProviderRequest {
   onLimits?: (limits: UsageLimits) => void;
   /** 화면에 알릴 안내 (예: Codex 가 도구를 쓰려 했음) */
   onNotice?: (text: string) => void;
+  /** 프로젝트 폴더 모드에서 AI 가 파일을 읽거나 쓸 때 (Claude Code 만) */
+  onTool?: (tool: ToolEvent) => void;
+  /** false 면 연결된 프로젝트 폴더를 쓰지 않는다 (문서 스캔처럼 폴더가 필요 없는 요청). 기본은 true */
+  useProject?: boolean;
 }
 
 export interface ProviderEnv {

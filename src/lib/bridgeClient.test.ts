@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ClaudeCodeError, fetchBridgeStatus, startClaudeLogin, streamClaudeCode, streamCli } from "./bridgeClient";
+import {
+  ClaudeCodeError,
+  fetchBridgeStatus,
+  fetchProjectInfo,
+  startClaudeLogin,
+  streamClaudeCode,
+  streamCli,
+  type ToolEvent,
+} from "./bridgeClient";
 
 const ndjson = (chunks: string[], init: ResponseInit = { status: 200 }) => {
   const enc = new TextEncoder();
@@ -244,5 +252,80 @@ describe("startClaudeLogin (로그인 시도하기)", () => {
     vi.stubGlobal("fetch", fetchMock);
     await login(undefined, ac.signal);
     expect(fetchMock.mock.calls[0][1].signal).toBe(ac.signal);
+  });
+});
+
+describe("프로젝트 폴더 연결", () => {
+  const run = (events: object[], extra: object = {}) => {
+    const tools: ToolEvent[] = [];
+    const fetchMock = vi.fn(async () => ndjson(events.map(line)));
+    vi.stubGlobal("fetch", fetchMock);
+    return {
+      tools,
+      fetchMock,
+      go: () =>
+        streamClaudeCode({
+          prompt: "p",
+          system: "s",
+          model: "sonnet",
+          signal: new AbortController().signal,
+          onText: () => {},
+          onTool: (t) => tools.push(t),
+          ...extra,
+        }),
+    };
+  };
+
+  it("project 를 요청에 실어 보내고, 없으면 생략한다", async () => {
+    const a = run([{ t: "done" }], { project: { dir: "C:\\SCS", allowWrite: ["quiz/**"] } });
+    await a.go();
+    const body = JSON.parse((a.fetchMock.mock.calls[0] as unknown as [string, { body: string }])[1].body);
+    expect(body.project).toEqual({ dir: "C:\\SCS", allowWrite: ["quiz/**"] });
+    const b = run([{ t: "done" }]);
+    await b.go();
+    expect(
+      JSON.parse((b.fetchMock.mock.calls[0] as unknown as [string, { body: string }])[1].body).project,
+    ).toBeUndefined();
+  });
+
+  it("tool / tool_error 이벤트를 같은 id 로 전달한다", async () => {
+    const r = run([
+      { t: "tool", id: "t1", name: "Read", target: "STUDY_STATUS.md" },
+      { t: "tool", id: "t2", name: "Write", target: "other.md" },
+      { t: "tool_error", id: "t2", message: "Permission denied" },
+      { t: "done" },
+    ]);
+    await r.go();
+    expect(r.tools).toEqual([
+      { id: "t1", name: "Read", target: "STUDY_STATUS.md" },
+      { id: "t2", name: "Write", target: "other.md" },
+      { id: "t2", error: "Permission denied" },
+    ]);
+  });
+});
+
+describe("fetchProjectInfo", () => {
+  it("폴더 요약을 돌려주고, 오류는 서버가 준 문구로", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ ok: true, name: "SCS", entries: 5, claudeMd: true, git: true }))),
+    );
+    expect(await fetchProjectInfo("C:\\SCS")).toMatchObject({ ok: true, name: "SCS", claudeMd: true });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ ok: false, error: "프로젝트 폴더를 찾을 수 없어요." }), { status: 400 }),
+      ),
+    );
+    expect(await fetchProjectInfo("X:\\none")).toEqual({ ok: false, error: "프로젝트 폴더를 찾을 수 없어요." });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    );
+    const r = await fetchProjectInfo("x");
+    expect(r.ok).toBe(false);
   });
 });

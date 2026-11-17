@@ -47,6 +47,18 @@ export interface StreamCliOptions {
   onLimits?: (limits: UsageLimits) => void;
   /** 화면에 알릴 안내 (예: Codex 가 도구를 쓰려 했음) */
   onNotice?: (text: string) => void;
+  /** 프로젝트 폴더 연결: 이 폴더에서 읽기 도구(와 허용한 경로의 쓰기)를 열어 실행한다 (Claude Code 만) */
+  project?: { dir: string; allowWrite: string[] };
+  /** AI 가 도구로 파일을 읽거나 쓸 때(와 거부됐을 때) */
+  onTool?: (tool: ToolEvent) => void;
+}
+
+/** 프로젝트 폴더 모드에서 AI 가 한 일. 같은 id 로 결과(오류)가 한 번 더 올 수 있다 */
+export interface ToolEvent {
+  id: string;
+  name?: string;
+  target?: string;
+  error?: string;
 }
 
 interface CliEvent {
@@ -55,6 +67,9 @@ interface CliEvent {
   message?: string;
   inputTokens?: number;
   outputTokens?: number;
+  id?: string;
+  name?: string;
+  target?: string;
   fiveHour?: UsageLimits["fiveHour"];
   sevenDay?: UsageLimits["sevenDay"];
   status?: UsageLimits["status"];
@@ -66,7 +81,12 @@ export async function streamCli(id: CliId, opts: StreamCliOptions): Promise<void
     method: "POST",
     signal: opts.signal,
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ prompt: opts.prompt, system: opts.system, model: opts.model || undefined }),
+    body: JSON.stringify({
+      prompt: opts.prompt,
+      system: opts.system,
+      model: opts.model || undefined,
+      project: opts.project || undefined,
+    }),
   });
   if (!res.ok || !res.body) {
     let msg = `브리지 요청 실패 (${res.status})`;
@@ -85,6 +105,8 @@ export async function streamCli(id: CliId, opts: StreamCliOptions): Promise<void
     else if (evt.t === "limits")
       opts.onLimits?.({ fiveHour: evt.fiveHour, sevenDay: evt.sevenDay, status: evt.status });
     else if (evt.t === "notice" && evt.text) opts.onNotice?.(evt.text);
+    else if (evt.t === "tool" && evt.id) opts.onTool?.({ id: evt.id, name: evt.name, target: evt.target });
+    else if (evt.t === "tool_error" && evt.id) opts.onTool?.({ id: evt.id, error: evt.message || "거부됨" });
     else if (evt.t === "error") throw new ClaudeCodeError(evt.message ?? "연결 오류");
   }
 }
@@ -146,6 +168,21 @@ export async function startClaudeLogin(opts: { signal: AbortSignal; onOpened?: (
     else if (evt.t === "exit") return { code: evt.code ?? -1, tail: evt.tail ?? "" };
   }
   return { code: -1, tail: "" }; // 종료 이벤트 없이 연결이 끝남
+}
+
+export type ProjectInfo =
+  { ok: true; name: string; entries: number; claudeMd: boolean; git: boolean } | { ok: false; error: string };
+
+/** 설정에서 프로젝트 폴더를 확인한다. (브리지가 그 폴더가 있는지, CLAUDE.md 가 있는지 알려 준다) */
+export async function fetchProjectInfo(dir: string): Promise<ProjectInfo> {
+  try {
+    const res = await fetch(`/api/claude-code/project?dir=${encodeURIComponent(dir)}`, { cache: "no-store" });
+    const j = await res.json().catch(() => null);
+    if (res.ok && j?.ok) return j as ProjectInfo;
+    return { ok: false, error: j?.error ?? `확인하지 못했어요 (${res.status})` };
+  } catch {
+    return { ok: false, error: "앱 안의 브리지에 연결하지 못했어요. 앱을 다시 켜 보세요." };
+  }
 }
 
 /** 이전 이름 호환: Claude Code */

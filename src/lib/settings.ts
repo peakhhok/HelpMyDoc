@@ -48,6 +48,10 @@ export interface Settings {
   useOverview: boolean;
   /** 실행할 때 짧은 요청을 한 번 보내 로그인이 유효한지 확인한다 (아주 적은 사용량) */
   verifyOnLaunch: boolean;
+  /** 프로젝트 폴더 (Claude Code 가 이 폴더에서 파일을 읽는다). 비어 있으면 연결 안 함 */
+  projectDir: string;
+  /** 이 폴더 안에서 AI 가 쓸 수 있는 경로 (쉼표로 구분). 비어 있으면 읽기 전용 */
+  projectWrite: string;
 }
 
 const KEY = "helpmydoc.settings.v1";
@@ -68,6 +72,8 @@ export const DEFAULT_SETTINGS: Settings = {
   onboarded: false,
   useOverview: true,
   verifyOnLaunch: true,
+  projectDir: "",
+  projectWrite: "",
 };
 
 export function loadSettings(): Settings {

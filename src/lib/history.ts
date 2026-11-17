@@ -1,4 +1,5 @@
 import type { ChatMessage } from "./anthropicApi";
+import type { ToolEvent } from "./bridgeClient";
 import type { TurnUsage } from "./usage";
 
 /** 화면에 보이는 메시지. 질문에는 AI 에게 실제로 보여준 문서 범위(ref)가 붙는다. */
@@ -21,6 +22,8 @@ export interface UiMessage extends ChatMessage {
   usage?: TurnUsage;
   /** 답변에 대한 안내 (예: Codex 가 도구를 쓰려 했음) */
   notice?: string;
+  /** 프로젝트 폴더 모드에서 AI 가 읽거나 쓴 파일 */
+  tools?: ToolEvent[];
 }
 
 /** AI 에게 보내는 이전 대화의 한도. 화면과 저장소에는 전체가 남는다. */

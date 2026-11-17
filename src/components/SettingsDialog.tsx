@@ -1,3 +1,4 @@
+import { ProjectSettings } from "./ProjectSettings";
 import { useState } from "react";
 import { CC_MODELS, MODELS, type ProviderId, type Settings } from "../lib/settings";
 import type { BridgeStatus, CliId } from "../lib/bridgeClient";
@@ -167,6 +168,7 @@ export function SettingsDialog({
               Sonnet을 권장합니다. 문서 질문에는 충분하고, 일반적으로 구독 한도를 덜 씁니다. 'Claude Code 기본값'은
               모델을 앱이 정하지 않고 Claude Code 자체 설정(계정·플랜에 따라 다름)을 따릅니다.
             </p>
+            <ProjectSettings draft={draft} set={set} />
             <p className="hint">
               내 컴퓨터에 설치된 Claude Code를 수정 없이 그대로 실행하고, 로그인과 사용량은 Claude Code가 직접
               처리합니다(HelpMyDoc은 로그인 정보를 읽거나 저장하지 않습니다). 본인 PC에서 본인 계정으로만 사용하세요. 이
