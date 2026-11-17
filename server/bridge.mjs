@@ -11,7 +11,8 @@ import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { adapters, resolveAdapterCommand, stripAnsi } from "./adapters.mjs";
-import { ProjectError, describeProject, readClaudeMd, validateProject } from "./project.mjs";
+import { GitError, currentBranch, gitStatus, gitSync } from "./git.mjs";
+import { ProjectError, describeProject, exactFiles, readClaudeMd, validateProject } from "./project.mjs";
 
 const MAX_BODY = 4 * 1024 * 1024;
 const MAX_CONCURRENT = 2;
@@ -128,6 +129,15 @@ async function chat(adapter, req, res) {
     } catch (e) {
       return json(res, e instanceof ProjectError ? e.status : 500, { error: e.message });
     }
+    // git: commit 은 지정한 브랜치에 있을 때만 열어 준다. (브랜치가 다르면 읽기 전용 git 만)
+    project.commitOk = false;
+    project.addFiles = [];
+    if (project.git) {
+      const now = await currentBranch(project.dir);
+      project.commitOk = project.allowWrite.length > 0 && !!now && (!project.branch || now === project.branch);
+      if (project.commitOk) project.addFiles = exactFiles(project.allowWrite);
+      if (project.addFiles.length === 0) project.commitOk = false;
+    }
     systemText += adapter.projectSystem({ ...project, claudeMd: readClaudeMd(project.dir) });
   }
 
@@ -202,6 +212,44 @@ async function chat(adapter, req, res) {
 
   child.stdin.on("error", () => {});
   child.stdin.end(adapter.buildStdin({ prompt, system: systemText }));
+}
+
+/** 동기화(pull → push)는 한 번에 하나만 */
+let gitBusy = false;
+
+/**
+ * 앱 버튼이 쓰는 git: { dir, branch, action: "status" | "sync" }.
+ * AI 와 무관하게 고정된 명령만 실행한다. push 는 여기서 사용자가 누른 "동기화"로만 일어난다.
+ */
+async function gitRoute(req, res) {
+  if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) {
+    return json(res, 415, { error: "application/json 만 허용됩니다." });
+  }
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (e) {
+    return json(res, 400, { error: e.message || "잘못된 요청입니다." });
+  }
+  try {
+    const { dir } = validateProject({ dir: body?.dir });
+    const branch = typeof body?.branch === "string" ? body.branch.trim() : "";
+    if (body?.action === "status") return json(res, 200, await gitStatus(dir, branch || undefined));
+    if (body?.action === "sync") {
+      if (!branch) return json(res, 400, { ok: false, error: "동기화할 브랜치를 설정에 적어 주세요." });
+      if (gitBusy) return json(res, 409, { ok: false, error: "이미 동기화가 진행 중이에요." });
+      gitBusy = true;
+      try {
+        return json(res, 200, await gitSync(dir, branch));
+      } finally {
+        gitBusy = false;
+      }
+    }
+    return json(res, 400, { ok: false, error: "action 이 올바르지 않습니다." });
+  } catch (e) {
+    if (e instanceof ProjectError || e instanceof GitError) return json(res, e.status, { ok: false, error: e.message });
+    throw e;
+  }
 }
 
 /** 실패했을 때 보여줄 마지막 출력 한 줄. 링크(일회용 인증 주소)는 가린다. */
@@ -299,6 +347,11 @@ export function claudeCodeBridge(req, res, next) {
     } catch (e) {
       json(res, e instanceof ProjectError ? 400 : 500, { ok: false, error: e.message });
     }
+  } else if (route === "git" && req.method === "POST" && adapter.supportsProject) {
+    gitRoute(req, res).catch((e) => {
+      if (!res.headersSent) json(res, 500, { ok: false, error: String(e?.message ?? e) });
+      else res.end();
+    });
   } else if (route === "login" && req.method === "POST") {
     login(adapter, res);
   } else if (route === "chat" && req.method === "POST") {

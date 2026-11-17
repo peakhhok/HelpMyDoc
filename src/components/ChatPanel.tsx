@@ -12,6 +12,7 @@ import { buildPrompt, type RelatedEntry } from "../lib/context";
 import { buildOverview, digestMap, type ScanData } from "../lib/scan";
 import { isAuthError } from "../lib/verify";
 import { projectFromSettings, projectName } from "../lib/project";
+import { GitDialog } from "./GitDialog";
 import type { VerifyPhase } from "../lib/useVerify";
 import { bestExcerpt, findRelated, type PageIndex } from "../lib/related";
 import { updateDoc } from "../lib/docStore";
@@ -115,6 +116,7 @@ export function ChatPanel({
 
   const provider = getProvider(settings.provider);
   const project = projectFromSettings(settings);
+  const [showGit, setShowGit] = useState(false);
   const persist = settings.saveHistory && !!docId && !!doc;
   // 사용 중에 Claude Code 연결이 끊기면(로그아웃 등) 화면을 막지 않고 배너로 알린다.
   const setupStep = evaluateSetup(bridge).step;
@@ -343,6 +345,16 @@ export function ChatPanel({
           >
             📁 {projectName(project.dir)}
             {project.allowWrite.length > 0 ? " · ✏️ 쓰기" : " · 읽기"}
+          </button>
+        )}
+        {provider.id === "claude-code" && project && project.branch && (
+          <button
+            type="button"
+            className="ghost small"
+            onClick={() => setShowGit(true)}
+            title="GitHub로 올리기 (받아오기 → push). AI는 push하지 않고 이 버튼으로만 올라가요"
+          >
+            ⬆ 동기화
           </button>
         )}
         {provider.id === "claude-code" && verifyPhase === "checking" && (
@@ -581,6 +593,9 @@ export function ChatPanel({
           )}
         </div>
       </div>
+      {showGit && project && project.branch && (
+        <GitDialog dir={project.dir} branch={project.branch} onClose={() => setShowGit(false)} />
+      )}
     </aside>
   );
 }

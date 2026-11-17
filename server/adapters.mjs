@@ -34,9 +34,70 @@ function pickWindow(w) {
 
 /* ------------------------------------------------------------------ Claude Code */
 
+/**
+ * AI 에게 열어 주는 git 명령 (프로젝트 폴더 모드). 명령 형태를 정확히 지정한 것만 허용한다.
+ *  - 읽기: status / diff / log / branch --show-current
+ *  - 로컬 commit: 쓰기 허용 경로 중 "정확한 파일 이름"에 대한 git add <파일>, 그리고 git commit -m "..."
+ *    (commitOk 가 아니면, 예: 현재 브랜치가 지정한 브랜치가 아니면 commit 관련은 열지 않는다)
+ *  - push / pull / reset / checkout / 전체 add 등은 열지 않는다. push 는 사용자가 앱 버튼으로만 한다.
+ */
+export function gitRules(project) {
+  if (!project?.git) return { allow: [], deny: [] };
+  const allow = [
+    "Bash(git status)",
+    "Bash(git status *)",
+    "Bash(git diff)",
+    "Bash(git diff *)",
+    "Bash(git log)",
+    "Bash(git log *)",
+    "Bash(git branch --show-current)",
+  ];
+  if (project.commitOk) {
+    const files = project.addFiles ?? [];
+    for (const f of files) allow.push(`Bash(git add ${f})`);
+    if (files.length > 1) allow.push(`Bash(git add ${files.join(" ")})`);
+    // commit 은 "파일을 지정한 형태"만 허용한다: git commit -m "메시지" -- <파일>.
+    // (파일 지정 없는 commit 이나 -a/--all 변형으로 다른 파일(PDF 등)이 같이 커밋되는 것을 막는다)
+    for (const f of files) allow.push(`Bash(git commit -m * -- ${f})`);
+    if (files.length > 1) allow.push(`Bash(git commit -m * -- ${files.join(" ")})`);
+  }
+  const deny = [
+    "Bash(git push)",
+    "Bash(git push *)",
+    "Bash(git pull)",
+    "Bash(git pull *)",
+    "Bash(git fetch *)",
+    "Bash(git reset *)",
+    "Bash(git checkout *)",
+    "Bash(git switch *)",
+    "Bash(git restore *)",
+    "Bash(git rebase *)",
+    "Bash(git merge *)",
+    "Bash(git clean *)",
+    "Bash(git stash *)",
+    "Bash(git rm *)",
+    "Bash(git remote *)",
+    "Bash(git config *)",
+    "Bash(git add .)",
+    "Bash(git add -A)",
+    "Bash(git add -A *)",
+    "Bash(git add --all *)",
+    "Bash(git add -u *)",
+    "Bash(git commit --amend *)",
+    "Bash(git commit *--amend*)",
+    "Bash(git commit *--all*)",
+    "Bash(git commit -a *)",
+    "Bash(git commit * -a *)",
+    "Bash(git commit * -a)",
+    "Bash(git diff *--output*)",
+    "Bash(git log *--output*)",
+  ];
+  return { allow, deny };
+}
+
 /** 도구 호출이 건드리는 대상(경로/검색어)을 폴더 기준 짧은 문자열로 */
 function toolTarget(input, cwd) {
-  const raw = input?.file_path ?? input?.path ?? input?.pattern ?? "";
+  const raw = input?.file_path ?? input?.path ?? input?.pattern ?? input?.command ?? "";
   if (typeof raw !== "string") return "";
   let s = raw.replace(/\\/g, "/");
   const base = cwd ? cwd.replace(/\\/g, "/").replace(/\/$/, "") : "";
@@ -79,9 +140,22 @@ export const claudeAdapter = {
     const args = ["-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose"];
     if (project) {
       const write = project.allowWrite ?? [];
-      args.push("--tools", ["Read", "Glob", "Grep", ...(write.length ? ["Write", "Edit"] : [])].join(","));
+      const git = gitRules(project);
+      args.push(
+        "--tools",
+        [
+          "Read",
+          "Glob",
+          "Grep",
+          ...(write.length ? ["Write", "Edit"] : []),
+          ...(git.allow.length ? ["Bash"] : []),
+        ].join(","),
+      );
       args.push("--permission-mode", "dontAsk");
-      if (write.length) args.push("--allowedTools", write.flatMap((p) => [`Write(${p})`, `Edit(${p})`]).join(","));
+      const allow = [...write.flatMap((p) => [`Write(${p})`, `Edit(${p})`]), ...git.allow];
+      if (allow.length) args.push("--allowedTools", allow.join(","));
+      // 허용 목록에 없는 것은 어차피 거부되지만, 위험한 변형(다른 곳으로 push, 전체 add, 출력 파일 지정 등)은 명시적으로도 막는다.
+      if (git.deny.length) args.push("--disallowedTools", git.deny.join(","));
     } else {
       args.push("--tools", "");
     }
@@ -103,7 +177,14 @@ export const claudeAdapter = {
   supportsProject: true,
 
   /** 프로젝트 폴더 모드에서 시스템 프롬프트에 덧붙이는 안내 (+ 폴더의 CLAUDE.md) */
-  projectSystem({ dir, allowWrite, claudeMd }) {
+  projectSystem({ dir, allowWrite, claudeMd, git, branch, commitOk }) {
+    const exactFiles = (list) => list.filter((p) => !/[*?]/.test(p) && !p.endsWith("/"));
+    const gitNote = git
+      ? " You may run these git commands: git status, git diff, git log, git branch --show-current" +
+        (commitOk
+          ? `, and for the files you are allowed to write: git add <that exact file name> (or all of them in this order: ${exactFiles(allowWrite).join(" ")}), then git commit -m "<short message>" -- <that file> (always name the file(s) after -- ; commit one allowed file at a time, or all of them in this order: ${exactFiles(allowWrite).join(" ")}). Before every commit run git branch --show-current${branch ? ` and only commit when it prints ${branch}; otherwise do not commit and tell the user` : ""}. Never use git add . or -A, never add PDFs or other files, never push, pull, reset, checkout, or switch branches (the user pushes with an app button).`
+          : `. Committing is disabled right now${branch ? ` (the current branch is not ${branch})` : ""}: do not try to add or commit, and tell the user if they ask.`)
+      : "";
     const write = allowWrite.length
       ? `You may create or edit files ONLY at these paths (relative to the project folder): ${allowWrite.join(", ")}. ` +
         "Say what you are about to record before writing, and never claim a file was written unless the tool call succeeded. " +
@@ -116,6 +197,7 @@ export const claudeAdapter = {
       "(for example status files) when they are relevant. " +
       "The PDF reader still provides the page the user is looking at in <document_context>; that is the source for page-based questions. " +
       write +
+      gitNote +
       (claudeMd ? `\n\n<project_instructions source="CLAUDE.md">\n${claudeMd}\n</project_instructions>` : "")
     );
   },

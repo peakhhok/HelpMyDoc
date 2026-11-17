@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { fetchProjectInfo, type ProjectInfo } from "../lib/bridgeClient";
-import { invalidWritePaths } from "../lib/project";
+import { invalidWritePaths, isSafeBranch } from "../lib/project";
 import type { Settings } from "../lib/settings";
 
 interface Props {
@@ -69,6 +69,38 @@ export function ProjectSettings({ draft, set }: Props) {
       <p className="hint warn">
         여기에 적은 경로에만 AI가 파일을 만들거나 고칠 수 있어요. 그 밖의 파일과 폴더 밖은 쓸 수 없고, 명령 실행도 막혀
         있습니다. 쓴 내용은 내 PC의 파일에만 반영되며 GitHub에는 자동으로 올라가지 않아요. (커밋·푸시는 직접)
+      </p>
+
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={draft.projectGit}
+          disabled={!draft.projectDir.trim()}
+          onChange={(e) => set({ projectGit: e.target.checked })}
+        />
+        AI가 git을 읽고 로컬 commit까지 하게 허용 (push는 안 돼요)
+      </label>
+      <label>
+        git 브랜치 (commit과 동기화를 이 브랜치에서만)
+        <input
+          value={draft.projectBranch}
+          placeholder="예: main-hkwfct"
+          spellCheck={false}
+          disabled={!draft.projectDir.trim()}
+          onChange={(e) => set({ projectBranch: e.target.value })}
+        />
+      </label>
+      {draft.projectBranch.trim() && !isSafeBranch(draft.projectBranch) && (
+        <p className="error">브랜치 이름이 올바르지 않아요 (영문·숫자·. _ - / 만).</p>
+      )}
+      <p className="hint">
+        허용하면 AI가 <code>git status / diff / log / branch --show-current</code>를 쓸 수 있고,{" "}
+        <b>쓰기를 허용한 파일 중 파일 이름을 정확히 적은 것</b>(예: <code>quiz/wrong_notes.md</code>)만{" "}
+        <code>git add</code>와 <code>git commit -m "…" -- 파일</code>로 커밋할 수 있어요. 현재 브랜치가 위 브랜치가
+        아니면 commit은 막힙니다.
+        <code>git add .</code>, push, pull, reset, checkout 등은 모두 막혀 있어요. GitHub로 올리는 것은 채팅 창 위의{" "}
+        <b>⬆ 동기화</b> 버튼(받아오기 → <code>git push origin 브랜치</code>)으로 직접 하세요. 브랜치를 적어야 그 버튼이
+        나타납니다.
       </p>
     </>
   );

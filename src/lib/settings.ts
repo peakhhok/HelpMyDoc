@@ -52,6 +52,10 @@ export interface Settings {
   projectDir: string;
   /** 이 폴더 안에서 AI 가 쓸 수 있는 경로 (쉼표로 구분). 비어 있으면 읽기 전용 */
   projectWrite: string;
+  /** AI 에게 git 읽기와 로컬 commit 을 허용 (push 는 앱 버튼으로만) */
+  projectGit: boolean;
+  /** commit 과 동기화를 허용할 브랜치 이름. 비우면 브랜치를 확인하지 않고 commit 하며, 동기화 버튼은 쓸 수 없다 */
+  projectBranch: string;
 }
 
 const KEY = "helpmydoc.settings.v1";
@@ -74,6 +78,8 @@ export const DEFAULT_SETTINGS: Settings = {
   verifyOnLaunch: true,
   projectDir: "",
   projectWrite: "",
+  projectGit: false,
+  projectBranch: "",
 };
 
 export function loadSettings(): Settings {

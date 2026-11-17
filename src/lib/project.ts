@@ -25,16 +25,25 @@ export function invalidWritePaths(input: string): string[] {
   return parseWritePaths(input).filter((p) => !isSafeWritePattern(p));
 }
 
+const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,79}$/;
+export const isSafeBranch = (b: string) => BRANCH_RE.test(b.trim());
+
 export interface ProjectConfig {
   dir: string;
   allowWrite: string[];
+  /** AI 에게 git 읽기와 (지정한 파일의) 로컬 commit 을 허용 */
+  git: boolean;
+  branch: string;
 }
 
 /** 질문에 쓸 프로젝트 설정 (폴더를 연결하지 않았으면 null). 잘못된 쓰기 경로는 버린다. */
-export function projectFromSettings(s: Pick<Settings, "projectDir" | "projectWrite">): ProjectConfig | null {
+export function projectFromSettings(
+  s: Pick<Settings, "projectDir" | "projectWrite" | "projectGit" | "projectBranch">,
+): ProjectConfig | null {
   const dir = s.projectDir.trim();
   if (!dir) return null;
-  return { dir, allowWrite: parseWritePaths(s.projectWrite).filter(isSafeWritePattern) };
+  const branch = isSafeBranch(s.projectBranch) ? s.projectBranch.trim() : "";
+  return { dir, allowWrite: parseWritePaths(s.projectWrite).filter(isSafeWritePattern), git: s.projectGit, branch };
 }
 
 /** 채팅창 머리말에 보여줄 폴더 이름 (경로의 마지막 부분) */

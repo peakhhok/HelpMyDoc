@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { invalidWritePaths, isSafeWritePattern, parseWritePaths, projectFromSettings, projectName } from "./project";
+import {
+  invalidWritePaths,
+  isSafeBranch,
+  isSafeWritePattern,
+  parseWritePaths,
+  projectFromSettings,
+  projectName,
+} from "./project";
 
 describe("쓰기 허용 경로", () => {
   it("폴더 안의 상대 경로(글롭 포함)만 안전하다", () => {
@@ -36,16 +43,26 @@ describe("쓰기 허용 경로", () => {
 });
 
 describe("projectFromSettings", () => {
+  const base = { projectDir: "C:\\SCS", projectWrite: "", projectGit: false, projectBranch: "" };
+
   it("폴더가 없으면 null, 있으면 안전한 쓰기 경로만 남긴다", () => {
-    expect(projectFromSettings({ projectDir: "  ", projectWrite: "quiz/**" })).toBeNull();
-    expect(projectFromSettings({ projectDir: "C:\\SCS", projectWrite: "" })).toEqual({
-      dir: "C:\\SCS",
-      allowWrite: [],
-    });
-    expect(projectFromSettings({ projectDir: "C:\\SCS", projectWrite: "quiz/**, ../x" })).toEqual({
+    expect(projectFromSettings({ ...base, projectDir: "  ", projectWrite: "quiz/**" })).toBeNull();
+    expect(projectFromSettings(base)).toEqual({ dir: "C:\\SCS", allowWrite: [], git: false, branch: "" });
+    expect(projectFromSettings({ ...base, projectWrite: "quiz/**, ../x" })).toEqual({
       dir: "C:\\SCS",
       allowWrite: ["quiz/**"],
+      git: false,
+      branch: "",
     });
+  });
+  it("git 허용과 브랜치 (이상한 브랜치 이름은 비운다)", () => {
+    expect(projectFromSettings({ ...base, projectGit: true, projectBranch: " main-hkwfct " })).toMatchObject({
+      git: true,
+      branch: "main-hkwfct",
+    });
+    expect(projectFromSettings({ ...base, projectGit: true, projectBranch: "a b;c" })).toMatchObject({ branch: "" });
+    expect(isSafeBranch("feature/x.1")).toBe(true);
+    expect(isSafeBranch("-rf")).toBe(false);
   });
   it("폴더 이름", () => {
     expect(projectName("C:\\Users\\peakh\\바탕 화면\\SCS")).toBe("SCS");

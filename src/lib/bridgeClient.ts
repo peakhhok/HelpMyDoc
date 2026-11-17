@@ -48,7 +48,7 @@ export interface StreamCliOptions {
   /** 화면에 알릴 안내 (예: Codex 가 도구를 쓰려 했음) */
   onNotice?: (text: string) => void;
   /** 프로젝트 폴더 연결: 이 폴더에서 읽기 도구(와 허용한 경로의 쓰기)를 열어 실행한다 (Claude Code 만) */
-  project?: { dir: string; allowWrite: string[] };
+  project?: { dir: string; allowWrite: string[]; git?: boolean; branch?: string };
   /** AI 가 도구로 파일을 읽거나 쓸 때(와 거부됐을 때) */
   onTool?: (tool: ToolEvent) => void;
 }
@@ -180,6 +180,42 @@ export async function fetchProjectInfo(dir: string): Promise<ProjectInfo> {
     const j = await res.json().catch(() => null);
     if (res.ok && j?.ok) return j as ProjectInfo;
     return { ok: false, error: j?.error ?? `확인하지 못했어요 (${res.status})` };
+  } catch {
+    return { ok: false, error: "앱 안의 브리지에 연결하지 못했어요. 앱을 다시 켜 보세요." };
+  }
+}
+
+export interface GitStatusInfo {
+  ok: true;
+  branch: string;
+  upstream: string;
+  ahead: number;
+  behind: number;
+  changed: Array<{ status: string; path: string }>;
+  changedCount: number;
+  clean: boolean;
+  branchMatches: boolean | null;
+}
+export interface GitSyncResult {
+  ok: boolean;
+  steps: Array<{ label: string; ok: boolean; output: string }>;
+}
+
+/** 앱 버튼용 git: 상태 보기(status) / 동기화(sync: git pull → git push origin <브랜치>). AI 와 무관한 고정 명령이다. */
+export async function gitAction(
+  action: "status" | "sync",
+  dir: string,
+  branch: string,
+): Promise<{ ok: true; data: GitStatusInfo | GitSyncResult } | { ok: false; error: string }> {
+  try {
+    const res = await fetch("/api/claude-code/git", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action, dir, branch }),
+    });
+    const j = await res.json().catch(() => null);
+    if (res.ok && j) return { ok: true, data: j };
+    return { ok: false, error: j?.error ?? `요청에 실패했어요 (${res.status})` };
   } catch {
     return { ok: false, error: "앱 안의 브리지에 연결하지 못했어요. 앱을 다시 켜 보세요." };
   }

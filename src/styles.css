@@ -1075,3 +1075,21 @@ a {
 .project-check .ok {
   color: #2f8f46;
 }
+
+/* ---------- git 동기화 ---------- */
+.git-changes,
+.git-steps {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  font-size: 12px;
+}
+.git-steps li.bad {
+  color: #b45309;
+}
+.git-steps pre {
+  margin: 2px 0 6px 18px;
+  white-space: pre-wrap;
+  font-size: 11px;
+  color: var(--muted);
+}

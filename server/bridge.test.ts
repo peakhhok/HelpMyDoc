@@ -1,4 +1,5 @@
 // 브리지 통합 테스트: PATH 에 가짜 `claude` 를 심어 실제 자식 프로세스 실행 경로를 검증한다.
+import { execFileSync } from "node:child_process";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -338,6 +339,116 @@ describe.skipIf(process.platform === "win32")("claude code bridge", () => {
           .map((e) => e.text)
           .join(""),
       ).toBe("읽어볼게요.\n\n끝났어요.");
+    });
+
+    describe("AI 에게 여는 git", () => {
+      let repo = "";
+      const FILES = ["quiz/wrong_notes.md", "STUDY_STATUS.md"];
+      beforeAll(() => {
+        repo = mkdtempSync(join(tmpdir(), "helpmydoc-gitproj-"));
+        execFileSync("git", ["init", "-q", "-b", "main-hkwfct", repo]);
+      });
+      afterAll(() => rmSync(repo, { recursive: true, force: true }));
+      const lists = (args: string[]) => ({
+        tools: args[args.indexOf("--tools") + 1],
+        allow: (args[args.indexOf("--allowedTools") + 1] ?? "").split(","),
+        deny: (args[args.indexOf("--disallowedTools") + 1] ?? "").split(","),
+        sys: args[args.indexOf("--append-system-prompt") + 1] ?? "",
+      });
+
+      it("지정한 브랜치에서는 읽기 git + 파일을 지정한 add/commit 만 열고 push 등은 명시적으로 막는다", async () => {
+        const { args } = await argsOf({ dir: repo, allowWrite: FILES, git: true, branch: "main-hkwfct" });
+        const l = lists(args);
+        expect(l.tools).toBe("Read,Glob,Grep,Write,Edit,Bash");
+        for (const ok of [
+          "Bash(git status)",
+          "Bash(git diff *)",
+          "Bash(git log *)",
+          "Bash(git branch --show-current)",
+          "Bash(git add quiz/wrong_notes.md)",
+          "Bash(git add STUDY_STATUS.md)",
+          "Bash(git add quiz/wrong_notes.md STUDY_STATUS.md)",
+          "Bash(git commit -m * -- quiz/wrong_notes.md)",
+          "Bash(git commit -m * -- STUDY_STATUS.md)",
+          "Bash(git commit -m * -- quiz/wrong_notes.md STUDY_STATUS.md)",
+        ]) {
+          expect(l.allow, ok).toContain(ok);
+        }
+        // 파일을 지정하지 않는 commit/전체 add/push 는 허용 목록에 없다
+        expect(l.allow).not.toContain("Bash(git commit -m *)");
+        expect(l.allow.join("|")).not.toMatch(/git push|git add \.|git add -A|git checkout|git reset|git pull/);
+        for (const no of [
+          "Bash(git push)",
+          "Bash(git push *)",
+          "Bash(git add .)",
+          "Bash(git commit * -a)",
+          "Bash(git commit *--amend*)",
+          "Bash(git diff *--output*)",
+        ]) {
+          expect(l.deny, no).toContain(no);
+        }
+        expect(l.sys).toContain("main-hkwfct");
+        expect(l.sys).toContain("never push");
+      });
+
+      it("현재 브랜치가 지정한 브랜치가 아니면 commit 은 열지 않는다 (읽기 git 만)", async () => {
+        const { args } = await argsOf({ dir: repo, allowWrite: FILES, git: true, branch: "other-branch" });
+        const l = lists(args);
+        expect(l.allow).toContain("Bash(git status)");
+        expect(l.allow.join("|")).not.toMatch(/git add|git commit/);
+        expect(l.sys).toContain("Committing is disabled");
+      });
+
+      it("쓰기 허용 경로가 와일드카드뿐이면(정확한 파일이 없으면) commit 은 열지 않는다", async () => {
+        const { args } = await argsOf({ dir: repo, allowWrite: ["quiz/**"], git: true, branch: "main-hkwfct" });
+        expect(lists(args).allow.join("|")).not.toMatch(/git add|git commit/);
+      });
+
+      it("git 을 켜지 않으면 Bash 도구 자체가 없다", async () => {
+        const { args } = await argsOf({ dir: repo, allowWrite: FILES });
+        expect(lists(args).tools).toBe("Read,Glob,Grep,Write,Edit");
+        expect(args.join(" ")).not.toContain("Bash");
+      });
+
+      it("잘못된 브랜치 이름은 400", async () => {
+        expect((await chat({ prompt: "x", project: { dir: repo, git: true, branch: "a b;c" } })).status).toBe(400);
+      });
+    });
+
+    describe("앱 버튼용 git API", () => {
+      const gitPost = (body: object, headers: Record<string, string> = {}) =>
+        request({
+          method: "POST",
+          path: "/api/claude-code/git",
+          headers: { "content-type": "application/json", ...headers },
+          body: JSON.stringify(body),
+        });
+
+      it("잘못된 요청은 막는다 (폴더·action·브랜치·형식·출처)", async () => {
+        expect((await gitPost({ dir: "상대", action: "status" })).status).toBe(400);
+        expect((await gitPost({ dir: proj, action: "nope" })).status).toBe(400);
+        expect((await gitPost({ dir: proj, action: "sync" })).status).toBe(400); // 브랜치 없음
+        expect((await gitPost({ dir: proj, action: "status" })).status).toBe(400); // git 저장소 아님
+        expect((await gitPost({ dir: proj, action: "sync", branch: "x;rm" })).status).toBe(400);
+        const r = await request({
+          method: "POST",
+          path: "/api/claude-code/git",
+          headers: { "content-type": "text/plain" },
+          body: "x",
+        });
+        expect(r.status).toBe(415);
+        expect((await gitPost({ dir: proj, action: "status" }, { origin: "https://evil.example" })).status).toBe(403);
+        expect(
+          (
+            await request({
+              method: "POST",
+              path: "/api/codex/git",
+              headers: { "content-type": "application/json" },
+              body: "{}",
+            })
+          ).status,
+        ).toBe(404);
+      });
     });
 
     it("폴더 확인 API: 있는 폴더는 요약, 없거나 상대 경로는 400", async () => {

@@ -6,6 +6,7 @@
 //  - 셸(Bash)과 웹, MCP 는 주지 않는다. 폴더 밖 파일은 권한이 없어 거부된다. (--permission-mode dontAsk)
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { BRANCH_RE } from "./git.mjs";
 
 const MAX_CLAUDE_MD = 40_000;
 /** 쓰기를 허용할 경로(폴더 기준 상대 경로, 글롭 가능) 하나의 모양 */
@@ -53,7 +54,16 @@ export function validateProject(input) {
     }
     allowWrite.push(p.trim().replace(/\\/g, "/"));
   }
-  return { dir, allowWrite };
+  // git: AI 에게 git 읽기와 로컬 commit 을 허용할지. branch 가 있으면 그 브랜치에서만 commit 한다.
+  const git = input.git === true;
+  const branch = typeof input.branch === "string" ? input.branch.trim() : "";
+  if (branch && !BRANCH_RE.test(branch)) throw new ProjectError("브랜치 이름이 올바르지 않아요.");
+  return { dir, allowWrite, git, branch };
+}
+
+/** 와일드카드가 없는 정확한 파일 경로만 (git add 는 파일 이름을 지정한 것만 허용하기 위해) */
+export function exactFiles(allowWrite) {
+  return allowWrite.filter((p) => !/[*?]/.test(p) && !p.endsWith("/"));
 }
 
 /** 폴더의 CLAUDE.md 내용 (없으면 빈 문자열, 너무 길면 앞부분만) */
