@@ -24,7 +24,6 @@ import { useDocIndex } from "./lib/useDocIndex";
 import { useClaudeVerify } from "./lib/useVerify";
 import { useScan } from "./lib/useScan";
 import type { UiMessage } from "./lib/history";
-import { sanitizeAttachments, type Attachment } from "./lib/attach";
 import { pdfSource, pptxSource, type DocSource } from "./lib/docSource";
 import { detectKind, unsupportedMessage } from "./lib/fileKind";
 import { openPdf } from "./lib/pdf";
@@ -42,11 +41,7 @@ export default function App() {
   const [fileName, setFileName] = useState("");
   /** 문서 지문(저장의 키)과, 저장돼 있던 대화·마지막 페이지 */
   const [docId, setDocId] = useState("");
-  const [restored, setRestored] = useState<{ messages: UiMessage[]; lastPage: number; attachments: Attachment[] }>({
-    messages: [],
-    lastPage: 1,
-    attachments: [],
-  });
+  const [restored, setRestored] = useState<{ messages: UiMessage[]; lastPage: number }>({ messages: [], lastPage: 1 });
   /** 이 문서의 형광펜·페이지 메모·스캔 결과 (문서별로 저장) */
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [notes, setNotes] = useState<Record<number, string>>({});
@@ -328,11 +323,7 @@ export default function App() {
       setDoc(next);
       setFileName(fileName);
       setDocId(id);
-      setRestored({
-        messages: record?.messages ?? [],
-        lastPage,
-        attachments: sanitizeAttachments(record?.attachments),
-      });
+      setRestored({ messages: record?.messages ?? [], lastPage });
       ann.current = {
         highlights: sanitizeHighlights(record?.highlights),
         notes: sanitizeNotes(record?.notes),
@@ -601,7 +592,6 @@ export default function App() {
               key={fileName + docId}
               docId={docId}
               initialMessages={restored.messages}
-              initialAttachments={restored.attachments}
               onGoToPage={(n) => viewerRef.current?.goTo(n)}
               doc={doc}
               fileName={fileName}

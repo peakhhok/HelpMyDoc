@@ -224,21 +224,3 @@ export function fitAttachments(list: Attachment[]): { name: string; text: string
     return { name: a.name, text: a.text.slice(0, take), cut: take < a.chars };
   });
 }
-
-/** 저장소에서 읽은 값이 깨져 있어도 안전하게 걸러낸다. */
-export function sanitizeAttachments(raw: unknown): Attachment[] {
-  if (!Array.isArray(raw)) return [];
-  const out: Attachment[] = [];
-  for (const a of raw) {
-    const o = a as Partial<Attachment> | null;
-    if (!o || typeof o.id !== "string" || typeof o.name !== "string" || typeof o.text !== "string") continue;
-    out.push({
-      id: o.id,
-      name: o.name,
-      text: o.text,
-      chars: typeof o.chars === "number" ? o.chars : o.text.length,
-      truncated: !!o.truncated,
-    });
-  }
-  return out;
-}

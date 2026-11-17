@@ -105,14 +105,4 @@ describe("docStore", () => {
     expect(cleared?.highlights).toEqual([]);
     expect(cleared?.notes).toEqual({});
   });
-
-  it("첨부 파일도 다른 필드를 저장해도 사라지지 않는다", async () => {
-    const attachments = [{ id: "a1", name: "notes.md", text: "내용", chars: 2, truncated: false }];
-    await updateDoc("fp", meta, { attachments });
-    await updateDoc("fp", meta, { lastPage: 5 });
-    await updateDoc("fp", meta, { messages: [m("q")] });
-    expect((await loadDoc("fp"))?.attachments).toEqual(attachments);
-    await updateDoc("fp", meta, { attachments: [] });
-    expect((await loadDoc("fp"))?.attachments).toEqual([]);
-  });
 });

@@ -31,8 +31,6 @@ interface Props {
   docId: string;
   /** 저장된 이전 대화 */
   initialMessages: UiMessage[];
-  /** 저장된 첨부 파일 */
-  initialAttachments: Attachment[];
   /** 답변 속 p.N 링크를 눌렀을 때 */
   onGoToPage: (page: number) => void;
   settings: Settings;
@@ -76,7 +74,6 @@ export function ChatPanel({
   onClearSelection,
   docId,
   initialMessages,
-  initialAttachments,
   onGoToPage,
   settings,
   bridge,
@@ -97,12 +94,11 @@ export function ChatPanel({
   getIndex,
 }: Props) {
   const [messages, setMessages] = useState<UiMessage[]>(initialMessages);
-  /** 채팅창에 올린 파일 (글로 바꾼 것). 질문마다 함께 전송된다 */
-  const [attachments, setAttachments] = useState<Attachment[]>(initialAttachments);
+  /** 채팅창에 올린 파일 (글로 바꾼 것). 다음에 보내는 질문 한 번에 함께 전송되고, 보내면 비워진다 */
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachNote, setAttachNote] = useState<string | null>(null);
   const [attachBusy, setAttachBusy] = useState(false);
   const attachInput = useRef<HTMLInputElement>(null);
-  const loadedAttachments = useRef(initialAttachments);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,12 +126,6 @@ export function ChatPanel({
     if (busy || !persist || !doc || messages === loadedMessages.current) return;
     updateDoc(docId, { name: fileName, numPages: doc.numPages }, { messages });
   }, [messages, busy, persist, doc, docId, fileName]);
-
-  // 첨부 파일이 바뀌면 이 문서의 기록에 저장한다.
-  useEffect(() => {
-    if (!persist || !doc || attachments === loadedAttachments.current) return;
-    updateDoc(docId, { name: fileName, numPages: doc.numPages }, { attachments });
-  }, [attachments, persist, doc, docId, fileName]);
 
   const addFiles = async (list: FileList | File[] | null | undefined) => {
     const files = Array.from(list ?? []);
@@ -174,6 +164,11 @@ export function ChatPanel({
 
     setError(null);
     setInput("");
+    // 올려 둔 파일은 이번 질문에만 함께 보내고 입력창에서는 비운다. (실패하면 아래에서 되돌린다)
+    const sentAttachments = attachments;
+    setAttachments([]);
+    setAttachNote(null);
+    let received = false;
     setBusy(true);
     const ac = new AbortController();
     abortRef.current = ac;
@@ -213,7 +208,7 @@ export function ChatPanel({
         }
       }
       const ctx = await buildPrompt({
-        attachments: fitAttachments(attachments),
+        attachments: fitAttachments(sentAttachments),
         related,
         overview: settings.useOverview ? buildOverview(scan, currentPage) : "",
         notes: memos,
@@ -266,13 +261,15 @@ export function ChatPanel({
             if (last?.role === "assistant") next[next.length - 1] = { ...last, usage };
             return next;
           }),
-        onText: (delta) =>
+        onText: (delta) => {
+          received = true;
           setMessages((cur) => {
             const next = cur.slice();
             const last = next[next.length - 1];
             next[next.length - 1] = { ...last, content: last.content + delta };
             return next;
-          }),
+          });
+        },
       });
       // 답변이 끝났는데 한도 정보가 하나도 안 왔다면 알려 준다. (옛 Claude Code 는 보내지 않는다)
       if (provider.id === "claude-code" && !sawLimits) onLimitsMissing();
@@ -294,6 +291,8 @@ export function ChatPanel({
         return cur;
       });
       setInput((v) => v || question);
+      // 답변이 하나도 없었다면 첨부도 되돌려서 다시 보낼 수 있게 한다.
+      if (!received) setAttachments((cur) => (cur.length ? cur : sentAttachments));
     } finally {
       setBusy(false);
       abortRef.current = null;
@@ -376,7 +375,7 @@ export function ChatPanel({
                 {m.ref.selection && " · 선택 텍스트 포함"}
                 {m.ref.overview && " · 📚 문서 개요 포함"}
                 {m.ref.notes && " · 📝 내 메모 포함"}
-                {m.ref.attached && m.ref.attached.length > 0 && ` · 📎 첨부 ${m.ref.attached.length}개 포함`}
+                {m.ref.attached && m.ref.attached.length > 0 && ` · 📎 ${m.ref.attached.join(", ")}`}
                 {m.ref.related && m.ref.related.length > 0 && (
                   <>
                     {" · 🔗 비슷한 내용: "}
@@ -476,7 +475,7 @@ export function ChatPanel({
                 </button>
               </span>
             ))}
-            <span className="muted small-text">첨부한 파일은 질문할 때마다 함께 전송돼요 (사용량 ↑)</span>
+            <span className="muted small-text">다음에 보내는 질문과 함께 전송돼요 (보내면 비워져요)</span>
           </div>
         )}
         {attachNote && (

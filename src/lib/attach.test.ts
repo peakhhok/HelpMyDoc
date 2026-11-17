@@ -1,15 +1,7 @@
 import { readFileSync } from "node:fs";
 import { DOMParser } from "@xmldom/xmldom";
 import { beforeAll, describe, expect, it } from "vitest";
-import {
-  MAX_CHARS_PER_FILE,
-  MAX_CHARS_TOTAL,
-  decodeText,
-  fitAttachments,
-  looksBinary,
-  readAttachment,
-  sanitizeAttachments,
-} from "./attach";
+import { MAX_CHARS_PER_FILE, MAX_CHARS_TOTAL, decodeText, fitAttachments, looksBinary, readAttachment } from "./attach";
 import { setXmlParser } from "./pptx/xml";
 
 beforeAll(() => setXmlParser((xml) => new DOMParser().parseFromString(xml, "text/xml") as unknown as Document));
@@ -111,13 +103,5 @@ describe("fitAttachments", () => {
   });
   it("한도 안이면 그대로", () => {
     expect(fitAttachments([mk("a", 10)])).toEqual([{ name: "a", text: "a".repeat(10), cut: false }]);
-  });
-});
-
-describe("sanitizeAttachments", () => {
-  it("깨진 저장값은 걸러낸다", () => {
-    expect(sanitizeAttachments("x")).toEqual([]);
-    const out = sanitizeAttachments([{ id: "1", name: "a", text: "t" }, { id: 2 }, null]);
-    expect(out).toEqual([{ id: "1", name: "a", text: "t", chars: 1, truncated: false }]);
   });
 });
