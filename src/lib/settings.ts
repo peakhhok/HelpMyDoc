@@ -46,6 +46,8 @@ export interface Settings {
   onboarded: boolean;
   /** 문서 스캔 결과(개요)와 내 메모를 질문에 함께 보낸다 */
   useOverview: boolean;
+  /** 실행할 때 짧은 요청을 한 번 보내 로그인이 유효한지 확인한다 (아주 적은 사용량) */
+  verifyOnLaunch: boolean;
 }
 
 const KEY = "helpmydoc.settings.v1";
@@ -65,6 +67,7 @@ export const DEFAULT_SETTINGS: Settings = {
   saveHistory: true,
   onboarded: false,
   useOverview: true,
+  verifyOnLaunch: true,
 };
 
 export function loadSettings(): Settings {

@@ -22,6 +22,10 @@ interface Props {
   onComplete: (patch: Partial<Settings>) => void;
   /** AI 없이 PDF만 먼저 보기 */
   onSkip: () => void;
+  /** 실행할 때 확인해 보니 로그인이 풀려 있었음 (재부팅 등으로 만료) */
+  loginExpired?: boolean;
+  /** "로그인 시도하기"가 끝났을 때 (실제로 쓸 수 있는지 다시 확인하려고) */
+  onLoginFinished?: () => void;
 }
 
 type RowState = "ok" | "bad" | "wait" | "checking";
@@ -116,7 +120,16 @@ function LoginButton({ onFinished }: { onFinished: () => void }) {
   );
 }
 
-export function SetupScreen({ mode, settings, bridge, onRefresh, onComplete, onSkip }: Props) {
+export function SetupScreen({
+  mode,
+  settings,
+  bridge,
+  onRefresh,
+  onComplete,
+  onSkip,
+  loginExpired,
+  onLoginFinished,
+}: Props) {
   const [tab, setTab] = useState<"claude-code" | "api">(
     mode === "first-run" || settings.provider !== "api" ? "claude-code" : "api",
   );
@@ -236,12 +249,18 @@ export function SetupScreen({ mode, settings, bridge, onRefresh, onComplete, onS
               >
                 {setup.step === "login" && (
                   <>
+                    {loginExpired && (
+                      <p className="warn-text">
+                        ⚠ 로그인이 풀렸거나 만료됐어요. (컴퓨터를 다시 켜거나 오래 지나면 이런 일이 있어요) 다시
+                        로그인해 주세요.
+                      </p>
+                    )}
                     <p>
                       설치는 되어 있지만 로그인이 필요해요. 아래 <b>로그인 시도하기</b>를 누르면 브라우저가 열려요.{" "}
                       <b>구독(Pro/Max) 계정</b>으로 로그인하세요. 로그인은 Claude Code가 직접 처리하며, HelpMyDoc은
                       로그인 정보를 보지 않습니다.
                     </p>
-                    <LoginButton onFinished={() => onRefresh(true)} />
+                    <LoginButton onFinished={() => (onLoginFinished ? onLoginFinished() : onRefresh(true))} />
                     <CommandBox label="터미널에서 직접 실행 (대신 쓸 수 있어요)" command={LOGIN_COMMAND} />
                   </>
                 )}

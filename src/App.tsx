@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DocViewer, type DocViewerHandle, type NewHighlight } from "./components/DocViewer";
 import { ChatPanel } from "./components/ChatPanel";
 import { NotesPanel } from "./components/NotesPanel";
@@ -21,6 +21,7 @@ import {
 import { loadDoc, updateDoc } from "./lib/docStore";
 import { sanitizeScan, type ScanData } from "./lib/scan";
 import { useDocIndex } from "./lib/useDocIndex";
+import { useClaudeVerify } from "./lib/useVerify";
 import { useScan } from "./lib/useScan";
 import type { UiMessage } from "./lib/history";
 import { pdfSource, pptxSource, type DocSource } from "./lib/docSource";
@@ -57,7 +58,7 @@ export default function App() {
   /** 설정창을 열 때 먼저 보여줄 연결 방식 (준비가 안 된 연결을 골랐을 때) */
   const [settingsProvider, setSettingsProvider] = useState<ProviderId | undefined>(undefined);
   /** Claude Code 상태 */
-  const [bridge, setBridge] = useState<BridgeStatus | null>(null);
+  const [bridgeRaw, setBridge] = useState<BridgeStatus | null>(null);
   /** Codex 상태 (Codex 연결을 켠 경우에만 확인한다) */
   const [codex, setCodex] = useState<BridgeStatus | null>(null);
   /** 마지막으로 알려진 구독 한도 사용률 (이미 초기화된 창은 제외) */
@@ -137,6 +138,23 @@ export default function App() {
   }, []);
 
   const claudeMode = settings.provider === "claude-code";
+
+  // 실행할 때(와 오래 비워 둔 뒤) Claude Code 로 짧은 요청을 실제로 보내 로그인이 유효한지 확인한다.
+  // `claude auth status` 는 로그인 정보가 남아 있는지만 알 뿐, 재부팅 등으로 풀린 것은 모른다.
+  const verify = useClaudeVerify({
+    enabled: claudeMode && settings.verifyOnLaunch && !!bridgeRaw?.available && bridgeRaw.loggedIn !== false,
+    onLimits,
+  });
+  const authBroken = verify.state.phase === "auth";
+  const bridge = useMemo(
+    () => (authBroken && bridgeRaw ? { ...bridgeRaw, loggedIn: false } : bridgeRaw),
+    [authBroken, bridgeRaw],
+  );
+  // 로그인이 풀린 것을 알아내면 연결 화면(로그인 단계)을 바로 띄운다.
+  useEffect(() => {
+    if (authBroken && claudeMode) setSticky(true);
+  }, [authBroken, claudeMode]);
+
   const setup = evaluateSetup(bridge);
 
   // 시작할 때 한 번: Claude Code 방식인데 준비가 안 됐다면 시작 화면을 띄운다.
@@ -550,6 +568,11 @@ export default function App() {
               onOpenSettings={openSettings}
               onSwitchProvider={switchProvider}
               onOpenSetup={() => setForceSetup(true)}
+              verifyPhase={verify.state.phase}
+              onAuthFailed={(message) => {
+                verify.markAuthFailed(message);
+                setSticky(true);
+              }}
               onRecheckBridge={() => {
                 refreshBridge(true);
                 if (settingsRef.current.enableCodex) refreshCodex(true);
@@ -614,9 +637,18 @@ export default function App() {
           mode={settings.onboarded ? "repair" : "first-run"}
           settings={settings}
           bridge={bridge}
-          onRefresh={refreshBridge}
+          onRefresh={(silent) => {
+            refreshBridge(silent);
+            // "다시 확인"을 눌렀을 때 로그인이 풀린 상태였다면 실제로 다시 확인한다.
+            if (!silent && authBroken) void verify.run();
+          }}
           onComplete={completeSetup}
           onSkip={skipSetup}
+          loginExpired={authBroken}
+          onLoginFinished={() => {
+            refreshBridge(true);
+            void verify.run();
+          }}
         />
       )}
       {showSettings && (

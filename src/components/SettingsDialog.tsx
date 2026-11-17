@@ -355,6 +355,19 @@ export function SettingsDialog({
         </p>
 
         <label className="check">
+          <input
+            type="checkbox"
+            checked={draft.verifyOnLaunch}
+            onChange={(e) => set({ verifyOnLaunch: e.target.checked })}
+          />
+          실행할 때 Claude Code 연결을 실제로 확인하기
+        </label>
+        <p className="hint">
+          재부팅 등으로 로그인이 풀렸는지 알아내려고, 실행할 때 아주 짧은 요청("OK"라고만 답하게)을 한 번 보내 봅니다.
+          사용량은 거의 쓰지 않으며, 풀렸다면 바로 로그인 화면을 띄웁니다. 끄면 질문할 때까지 풀렸는지 모를 수 있어요.
+        </p>
+
+        <label className="check">
           <input type="checkbox" checked={draft.saveHistory} onChange={(e) => set({ saveHistory: e.target.checked })} />
           문서별 대화·메모·형광펜·스캔 결과·마지막 페이지를 이 PC에 저장
         </label>

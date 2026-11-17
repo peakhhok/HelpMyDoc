@@ -9,6 +9,8 @@ import { ClaudeCodeError, type BridgeStatus } from "../lib/bridgeClient";
 import type { Highlight } from "../lib/annotations";
 import { buildPrompt, type RelatedEntry } from "../lib/context";
 import { buildOverview, digestMap, type ScanData } from "../lib/scan";
+import { isAuthError } from "../lib/verify";
+import type { VerifyPhase } from "../lib/useVerify";
 import { bestExcerpt, findRelated, type PageIndex } from "../lib/related";
 import { updateDoc } from "../lib/docStore";
 import { linkifyPages, trimHistory, type UiMessage } from "../lib/history";
@@ -49,6 +51,10 @@ interface Props {
   /** 답변을 받았는데 한도 정보가 하나도 오지 않았음 (옛 Claude Code 버전) */
   limitsMissing: boolean;
   onLimitsMissing: () => void;
+  /** 실행할 때 하는 연결 확인의 진행 상태 (Claude Code 방식) */
+  verifyPhase: VerifyPhase;
+  /** 질문 중에 로그인이 풀렸다는 오류를 만났을 때 */
+  onAuthFailed: (message: string) => void;
   /** 문서 스캔 결과, 페이지 메모, 형광펜 (질문에 함께 보낼 수 있다) */
   scan: ScanData | null;
   notes: Record<number, string>;
@@ -79,6 +85,8 @@ export function ChatPanel({
   onLimits,
   limitsMissing,
   onLimitsMissing,
+  verifyPhase,
+  onAuthFailed,
   scan,
   notes,
   highlights,
@@ -229,9 +237,11 @@ export function ChatPanel({
       const aborted = (e as Error).name === "AbortError";
       if (!aborted) {
         if (provider.id === "claude-code" || provider.id === "codex") onRecheckBridge(); // 로그인이 풀렸는지 등을 다시 확인
-        setError(
-          e instanceof ClaudeError || e instanceof ClaudeCodeError ? e.message : `오류: ${(e as Error).message}`,
-        );
+        const message =
+          e instanceof ClaudeError || e instanceof ClaudeCodeError ? e.message : `오류: ${(e as Error).message}`;
+        // 로그인이 풀렸다는 오류면 연결 화면(로그인 단계)으로 안내한다.
+        if (provider.id === "claude-code" && isAuthError(message)) onAuthFailed(message);
+        setError(message);
       }
       // 답변이 하나도 없으면(오류든 중지든) 이번 턴을 되돌리고 질문을 입력창에 복원한다.
       // 일부라도 받았다면 받은 만큼만 남긴다.
@@ -254,6 +264,11 @@ export function ChatPanel({
         <span className="muted">{provider.describe(settings)}</span>
         {provider.id === "claude-code" && (
           <LimitsBadge limits={limits} missing={limitsMissing} version={bridge?.version?.split(" ")[0]} />
+        )}
+        {provider.id === "claude-code" && verifyPhase === "checking" && (
+          <span className="muted small-text" role="status">
+            연결 확인 중…
+          </span>
         )}
         <span className="spacer" />
         {persist && (
