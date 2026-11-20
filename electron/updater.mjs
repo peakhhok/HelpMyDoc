@@ -61,6 +61,34 @@ export function createUpdater({ autoUpdater, currentVersion, enabled, checkDelay
       }
     },
 
+    /**
+     * 사용자가 "업데이트 확인"을 눌렀을 때: 지금 확인하고 결과를 알려 준다.
+     *   disabled(이 실행에서는 꺼져 있음) / busy(이미 확인·받는 중) / ready(받아 둔 업데이트가 있음) /
+     *   available(새 버전을 찾아 받기 시작) / up-to-date(최신) / error
+     * 새 버전을 찾으면 받기는 백그라운드로 계속된다(진행은 화면 위 배너가 알린다).
+     */
+    async checkNow() {
+      if (!enabled) return { outcome: "disabled", currentVersion };
+      if (state.state === "ready") return { outcome: "ready", version: state.version, currentVersion };
+      if (state.state === "checking") return { outcome: "busy", currentVersion };
+      if (state.state === "downloading") return { outcome: "available", version: state.version, currentVersion };
+      try {
+        await autoUpdater.checkForUpdates();
+      } catch (e) {
+        if (state.state !== "ready") set({ state: "error", error: message(e) });
+      }
+      switch (state.state) {
+        case "downloading":
+          return { outcome: "available", version: state.version, currentVersion };
+        case "ready":
+          return { outcome: "ready", version: state.version, currentVersion };
+        case "error":
+          return { outcome: "error", error: state.error, currentVersion };
+        default:
+          return { outcome: "up-to-date", currentVersion };
+      }
+    },
+
     /** 앱을 시작할 때 한 번 부른다. 잠시 뒤 확인하고, 이후 주기적으로 확인한다. */
     start(timers = { setTimeout, setInterval }) {
       if (!enabled) return () => {};

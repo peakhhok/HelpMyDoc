@@ -56,6 +56,8 @@ export interface Settings {
   projectGit: boolean;
   /** commit 과 동기화를 허용할 브랜치 이름. 비우면 브랜치를 확인하지 않고 commit 하며, 동기화 버튼은 쓸 수 없다 */
   projectBranch: string;
+  /** 앱을 켜면 마지막으로 연 문서를 자동으로 연다 (데스크톱 앱에서만; 파일 경로만 기억한다) */
+  reopenLast: boolean;
 }
 
 const KEY = "helpmydoc.settings.v1";
@@ -80,6 +82,7 @@ export const DEFAULT_SETTINGS: Settings = {
   projectWrite: "",
   projectGit: false,
   projectBranch: "",
+  reopenLast: true,
 };
 
 export function loadSettings(): Settings {

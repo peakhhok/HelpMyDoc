@@ -220,6 +220,23 @@ async function httpOnlySmoke({ userData, env }) {
       (await win.locator(".pp-slide").first().innerText()).includes("AWS 보안 기초"),
     );
     check("화면 오류 없음", errors.length === 0, errors.join(" | "));
+
+    // 최근 문서: 실제 파일 경로로 열면 경로가 기억되고, 앱을 껐다 켜면 그 문서가 자동으로 열린다.
+    const docPath = join(mkdtempSync(join(tmpdir(), "hmd-smoke-doc-")), "recent.pdf");
+    writeFileSync(docPath, tinyPdf("RECENT-DOC-5521"));
+    await win.setInputFiles('input[type="file"]', docPath);
+    const hasRecent = () => document.querySelector(".textLayer")?.textContent?.includes("RECENT-DOC-5521") ?? false;
+    await win.waitForFunction(hasRecent, null, { timeout: 20_000 });
+    await win.waitForTimeout(1000);
+    await app.close();
+    const app2 = await _electron.launch({ executablePath: exe, args, env: appEnv, timeout: 60_000 });
+    try {
+      const win2 = await app2.firstWindow();
+      await win2.waitForFunction(hasRecent, null, { timeout: 30_000 });
+      check("앱을 껐다 켜면 마지막으로 연 문서가 자동으로 열림", true);
+    } finally {
+      await app2.close().catch(() => {});
+    }
   } finally {
     await app.close().catch(() => {});
   }

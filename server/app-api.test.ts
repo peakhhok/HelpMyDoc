@@ -9,7 +9,8 @@ import { createAppServer } from "./app-server.mjs";
 let root = "";
 let state: Record<string, unknown> = {};
 const install = vi.fn(() => true);
-const updater = { getState: () => state, install };
+const checkNow = vi.fn(async () => ({ outcome: "up-to-date", currentVersion: "0.1.0" }));
+const updater = { getState: () => state, install, checkNow };
 let withUpdater: http.Server;
 let withoutUpdater: http.Server;
 const ports: number[] = [];
@@ -47,6 +48,7 @@ afterAll(async () => {
 beforeEach(() => {
   state = { state: "idle", currentVersion: "0.1.0" };
   install.mockClear();
+  checkNow.mockClear();
 });
 
 describe("앱 API (자동 업데이트)", () => {
@@ -142,5 +144,26 @@ describe("앱 API (자동 업데이트)", () => {
     });
     expect(post.type).toContain("text/html");
     expect(install).not.toHaveBeenCalled();
+  });
+
+  it("업데이트 확인: 지금 확인하고 결과를 돌려준다 (POST 만, 다른 출처는 403)", async () => {
+    const post = (headers: Record<string, string> = {}) =>
+      req(ports[0], {
+        method: "POST",
+        path: "/api/app/update/check",
+        headers: { "content-type": "application/json", ...headers },
+        body: "{}",
+      });
+    const r = await post();
+    expect(r.status).toBe(200);
+    expect(JSON.parse(r.text)).toEqual({ outcome: "up-to-date", currentVersion: "0.1.0" });
+    expect(checkNow).toHaveBeenCalledTimes(1);
+    expect((await post({ origin: "https://evil.example" })).status).toBe(403);
+    expect((await req(ports[0], { path: "/api/app/update/check" })).status).toBe(404); // GET 은 안 됨
+    expect(checkNow).toHaveBeenCalledTimes(1);
+    checkNow.mockRejectedValueOnce(new Error("boom"));
+    const bad = await post();
+    expect(bad.status).toBe(500);
+    expect(JSON.parse(bad.text).outcome).toBe("error");
   });
 });

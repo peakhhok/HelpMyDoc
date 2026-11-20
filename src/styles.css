@@ -1093,3 +1093,33 @@ a {
   font-size: 11px;
   color: var(--muted);
 }
+
+/* ---------- 최근 문서 ---------- */
+.recent {
+  margin-top: 18px;
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+}
+.recent-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-item small {
+  color: var(--muted);
+  flex: none;
+}
+
+.update-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}

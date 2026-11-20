@@ -1,3 +1,4 @@
+import { UpdateCheck } from "./UpdateCheck";
 import { useState } from "react";
 import { CC_MODELS, MODELS, type ProviderId, type Settings } from "../lib/settings";
 import type { BridgeStatus, CliId } from "../lib/bridgeClient";
@@ -372,6 +373,15 @@ export function SettingsDialog({
         </p>
 
         <label className="check">
+          <input type="checkbox" checked={draft.reopenLast} onChange={(e) => set({ reopenLast: e.target.checked })} />
+          앱을 켜면 마지막으로 열었던 문서를 자동으로 열기
+        </label>
+        <p className="hint">
+          데스크톱 앱에서만 동작해요. 문서 파일이 아니라 <b>파일 경로</b>(최근 8개)만 이 PC에 기억하고, 켤 때 그 경로의
+          파일을 다시 읽어요. 파일을 옮기거나 지웠으면 열지 않고 알려 줍니다. 마지막으로 보던 쪽에서 이어집니다.
+        </p>
+
+        <label className="check">
           <input type="checkbox" checked={draft.saveHistory} onChange={(e) => set({ saveHistory: e.target.checked })} />
           문서별 대화·메모·형광펜·스캔 결과·마지막 페이지를 이 PC에 저장
         </label>
@@ -385,6 +395,7 @@ export function SettingsDialog({
         <p className="hint">
           HelpMyDoc v{__APP_VERSION__} · 빌드 {__APP_COMMIT__}
         </p>
+        <UpdateCheck />
 
         <div className="modal-actions">
           <button type="button" className="ghost" onClick={onClose}>

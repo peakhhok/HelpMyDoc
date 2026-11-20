@@ -36,6 +36,50 @@ export async function installUpdate(): Promise<boolean> {
   }
 }
 
+export type CheckOutcome = "disabled" | "busy" | "ready" | "available" | "up-to-date" | "error";
+
+export interface CheckResult {
+  outcome: CheckOutcome;
+  currentVersion?: string;
+  version?: string;
+  error?: string;
+}
+
+/** "업데이트 확인"을 눌렀을 때: 지금 확인하고 결과를 받는다. (업데이트 API 가 없는 브라우저 버전이면 null) */
+export async function checkForUpdate(): Promise<CheckResult | null> {
+  try {
+    const res = await fetch("/api/app/update/check", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    if (!res.ok || !(res.headers.get("content-type") ?? "").includes("application/json")) return null;
+    return (await res.json()) as CheckResult;
+  } catch {
+    return null;
+  }
+}
+
+/** 확인 결과를 한 줄 안내로 */
+export function describeCheck(r: CheckResult): string {
+  const cur = r.currentVersion ? `v${r.currentVersion}` : "현재 버전";
+  const v = r.version ? `v${r.version}` : "새 버전";
+  switch (r.outcome) {
+    case "up-to-date":
+      return `최신 버전이에요 (${cur}).`;
+    case "available":
+      return `${v}을(를) 찾았어요. 백그라운드로 받는 중이고, 끝나면 화면 위에서 알려 드려요.`;
+    case "ready":
+      return `${v}이(가) 준비됐어요. 화면 위의 "다시 시작해서 업데이트"를 누르면 설치돼요.`;
+    case "busy":
+      return "이미 확인하는 중이에요. 잠시 뒤에 다시 눌러 주세요.";
+    case "disabled":
+      return "이 실행에서는 자동 업데이트가 꺼져 있어요. (설치형 앱에서만 동작하고, 개발 실행이나 업데이트를 끈 경우는 안 돼요) GitHub Releases에서 직접 내려받으세요.";
+    default:
+      return `업데이트를 확인하지 못했어요${r.error ? `: ${r.error}` : ""}. 인터넷 연결을 확인해 주세요.`;
+  }
+}
+
 export interface UpdateNotice {
   text: string;
   /** 있으면 버튼을 보여준다 */

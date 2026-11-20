@@ -1,6 +1,7 @@
 // 데스크톱 앱 전용 API: 자동 업데이트 상태 확인과 설치. (브라우저 버전에는 이 경로가 없다)
 //
 //   GET  /api/app/update          → { state, currentVersion, version?, percent?, error? }
+//   POST /api/app/update/check    → 지금 새 버전을 확인하고 결과를 돌려준다 ({ outcome, version?, currentVersion, error? })
 //   POST /api/app/update/install  → 받아 둔 업데이트를 설치하고 앱을 다시 시작 (준비 안 됐으면 409)
 //
 // 브리지와 같은 Host/Origin 검사를 거친다. 다른 웹사이트가 앱을 재시작시킬 수 없다.
@@ -13,6 +14,14 @@ export function appApi(updater) {
     if (!isTrustedRequest(req)) return json(res, 403, { error: "허용되지 않은 출처입니다." });
 
     if (url === "/api/app/update" && req.method === "GET") return json(res, 200, updater.getState());
+
+    if (url === "/api/app/update/check" && req.method === "POST") {
+      Promise.resolve(updater.checkNow?.() ?? { outcome: "disabled" }).then(
+        (r) => json(res, 200, r),
+        (e) => json(res, 500, { outcome: "error", error: String(e?.message ?? e).slice(0, 200) }),
+      );
+      return;
+    }
 
     if (url === "/api/app/update/install" && req.method === "POST") {
       if (updater.getState().state !== "ready")

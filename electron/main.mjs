@@ -1,11 +1,13 @@
 // HelpMyDoc 데스크톱 앱 (Electron).
 // 앱 안에서 127.0.0.1 로컬 서버(dist 서비스 + Claude Code 브리지)를 띄우고 그 주소를 창에 로드한다.
 // 브라우저 버전과 코드가 완전히 같고, 로컬 Claude Code 브리지도 그대로 동작한다.
-import { app, BrowserWindow, session, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import electronUpdater from "electron-updater";
 import { createAppServer } from "../server/app-server.mjs";
+import { createRecentDocuments } from "./last-document.mjs";
+import { buildMenuTemplate, updateDialogFor } from "./menu.mjs";
 import { fixPath } from "./path-fix.mjs";
 import { createUpdater } from "./updater.mjs";
 
@@ -60,7 +62,13 @@ function createWindow(origin) {
     minHeight: 600,
     title: "HelpMyDoc",
     backgroundColor: "#16181b",
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false },
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: false,
+      preload: join(here, "preload.cjs"),
+    },
   });
 
   const openExternal = (url) => {
@@ -97,6 +105,55 @@ if (!app.requestSingleInstanceLock()) {
 
     const port = await startServer();
     const origin = `http://127.0.0.1:${port}`;
+
+    // 상단 메뉴: 도움말 > 업데이트 확인…
+    const showUpdateResult = async (result) => {
+      const d = updateDialogFor(result);
+      const win = BrowserWindow.getFocusedWindow() ?? mainWindow ?? undefined;
+      const r = await dialog.showMessageBox(win, {
+        type: result.outcome === "error" ? "warning" : "info",
+        title: "HelpMyDoc",
+        message: d.message,
+        detail: d.detail,
+        buttons: d.install ? ["지금 다시 시작", "나중에"] : ["확인"],
+        defaultId: 0,
+        cancelId: d.install ? 1 : 0,
+      });
+      if (d.install && r.response === 0) updater.install();
+    };
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate(
+        buildMenuTemplate({
+          version: app.getVersion(),
+          isMac: process.platform === "darwin",
+          onCheckUpdate: async () => showUpdateResult(await updater.checkNow()),
+          onOpenRepo: () => shell.openExternal("https://github.com/peakhhok/HelpMyDoc"),
+          onAbout: () =>
+            dialog.showMessageBox(mainWindow ?? undefined, {
+              type: "info",
+              title: "HelpMyDoc",
+              message: `HelpMyDoc v${app.getVersion()}`,
+              detail:
+                "PDF·PowerPoint를 보면서 AI에게 질문하는 오픈소스 리더예요.\nhttps://github.com/peakhhok/HelpMyDoc",
+              buttons: ["확인"],
+            }),
+        }),
+      ),
+    );
+
+    // 최근에 연 문서(경로만 기억). 이 앱의 화면이 보낸 요청만 받는다.
+    const recent = createRecentDocuments({ dir: app.getPath("userData") });
+    const fromApp = (e) => {
+      try {
+        return new URL(e.senderFrame?.url ?? "").origin === origin || !!process.env.HELPMYDOC_DEV_URL;
+      } catch {
+        return false;
+      }
+    };
+    ipcMain.on("doc:seen", (e, p) => fromApp(e) && recent.seen(p));
+    ipcMain.handle("doc:remember", (e, p) => fromApp(e) && recent.remember(p));
+    ipcMain.handle("doc:recent", (e) => (fromApp(e) ? recent.list() : []));
+    ipcMain.handle("doc:read", (e, p) => (fromApp(e) ? recent.read(p) : { ok: false, reason: "unknown" }));
     createWindow(origin);
     updater.start();
     app.on("activate", () => {

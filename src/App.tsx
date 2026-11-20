@@ -20,6 +20,7 @@ import {
 } from "./lib/annotations";
 import { loadDoc, updateDoc } from "./lib/docStore";
 import { sanitizeScan, type ScanData } from "./lib/scan";
+import { desktop, listRecent, readFailureMessage, rememberOpened, type RecentDoc } from "./lib/desktop";
 import { sanitizeProjectValues, valuesFromSettings, type ProjectValues } from "./lib/project";
 import { useDocIndex } from "./lib/useDocIndex";
 import { useClaudeVerify } from "./lib/useVerify";
@@ -53,6 +54,9 @@ export default function App() {
   const [rightTab, setRightTab] = useState<"chat" | "notes">("chat");
   const [showScan, setShowScan] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  /** 최근에 연 문서 (데스크톱 앱에서만) 와, 마지막 문서를 자동으로 열지 못했을 때의 안내 */
+  const [recent, setRecent] = useState<RecentDoc[]>([]);
+  const [reopenNote, setReopenNote] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageInput, setPageInput] = useState("1");
   const [scale, setScale] = useState(DEFAULT_SCALE);
@@ -315,14 +319,14 @@ export default function App() {
         problem ??= unsupportedMessage("doc", file.name);
         continue;
       }
-      await openBuffer(file.name, buffer, found.kind);
+      await openBuffer(file.name, buffer, found.kind, file);
       return;
     }
     setLoadError(problem ?? "열 수 있는 파일이 없어요.");
   };
   const openFile = (file: File | undefined) => openFiles(file ? [file] : undefined);
 
-  const openBuffer = async (fileName: string, buffer: ArrayBuffer, kind: "pdf" | "pptx") => {
+  const openBuffer = async (fileName: string, buffer: ArrayBuffer, kind: "pdf" | "pptx", source?: File) => {
     const isPptx = kind === "pptx";
     try {
       setLoadError(null);
@@ -354,10 +358,46 @@ export default function App() {
       setPage(lastPage);
       setPageInput(String(lastPage));
       setSelection("");
+      setReopenNote(null);
+      // 데스크톱 앱이면 이 파일을 "최근 문서"로 기억한다 (경로만).
+      if (source) void rememberOpened(source).then(() => listRecent().then(setRecent));
     } catch (e) {
       setLoadError(`PDF를 열지 못했습니다: ${(e as Error).message}`);
     }
   };
+
+  /** 최근 문서를 다시 연다 (파일을 읽는 것은 데스크톱 앱 쪽이다). */
+  const openRecent = useCallback(async (item: RecentDoc) => {
+    const d = desktop();
+    if (!d) return;
+    const r = await d.read(item.path);
+    if (r.ok) {
+      setReopenNote(null);
+      // 메모리에서 만든 파일이라 경로가 없어 "최근 문서" 순서는 바뀌지 않는다 (이미 목록에 있다).
+      await openFile(new File([r.data as BlobPart], r.name));
+      // 목록에서 연 문서도 "마지막으로 연 문서"가 되도록 맨 앞으로 올린다.
+      void d.remember(item.path).then(() => listRecent().then(setRecent));
+    } else {
+      setReopenNote(readFailureMessage(r));
+      void listRecent().then(setRecent);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 앱을 켜면: 최근 문서 목록을 불러오고, 설정에 따라 마지막 문서를 자동으로 연다.
+  useEffect(() => {
+    if (!desktop()) return;
+    let alive = true;
+    (async () => {
+      const list = await listRecent();
+      if (!alive) return;
+      setRecent(list);
+      if (settingsRef.current.reopenLast && list[0] && !docRef.current) await openRecent(list[0]);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [openRecent]);
 
   const onPageChange = useCallback((p: number) => {
     setPage(p);
@@ -582,6 +622,25 @@ export default function App() {
               <p>PDF 또는 PowerPoint(.pptx) 파일을 여기에 끌어다 놓거나 클릭해서 여세요</p>
               <p className="muted">파일은 서버에 업로드되지 않고 이 브라우저에서만 처리됩니다.</p>
               {loadError && <p className="error">{loadError}</p>}
+              {reopenNote && <p className="muted">{reopenNote}</p>}
+              {recent.length > 0 && (
+                <div className="recent" onClick={(e) => e.stopPropagation()}>
+                  <strong>최근 문서</strong>
+                  {recent.map((r) => (
+                    <button
+                      key={r.path}
+                      type="button"
+                      className="ghost recent-item"
+                      disabled={!r.exists}
+                      title={r.exists ? r.path : `${r.path} (파일이 없어요)`}
+                      onClick={() => void openRecent(r)}
+                    >
+                      {r.name}
+                      <small>{r.exists ? new Date(r.at).toLocaleDateString() : "파일 없음"}</small>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </section>

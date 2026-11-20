@@ -135,3 +135,60 @@ describe("createUpdater", () => {
     expect(au.checkForUpdates).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("checkNow (업데이트 확인 버튼)", () => {
+  it("꺼져 있으면 disabled", async () => {
+    const au = fakeAutoUpdater();
+    const up = createUpdater({ autoUpdater: au, currentVersion: "0.1.0", enabled: false });
+    expect(await up.checkNow()).toEqual({ outcome: "disabled", currentVersion: "0.1.0" });
+    expect(au.checkForUpdates).not.toHaveBeenCalled();
+  });
+
+  it("최신이면 up-to-date", async () => {
+    const au = fakeAutoUpdater();
+    au.checkForUpdates = vi.fn(async () => {
+      au.emit("checking-for-update");
+      au.emit("update-not-available", { version: "0.1.0" });
+    });
+    const { up } = make(au);
+    expect(await up.checkNow()).toEqual({ outcome: "up-to-date", currentVersion: "0.1.0" });
+    expect(up.getState().state).toBe("idle");
+  });
+
+  it("새 버전을 찾으면 available (받기는 계속되고 상태는 downloading)", async () => {
+    const au = fakeAutoUpdater();
+    au.checkForUpdates = vi.fn(async () => {
+      au.emit("checking-for-update");
+      au.emit("update-available", { version: "0.2.0" });
+    });
+    const { up } = make(au);
+    expect(await up.checkNow()).toEqual({ outcome: "available", version: "0.2.0", currentVersion: "0.1.0" });
+    expect(up.getState()).toMatchObject({ state: "downloading", version: "0.2.0" });
+    // 받는 중에 또 누르면 다시 확인하지 않고 같은 답
+    expect((await up.checkNow()).outcome).toBe("available");
+    expect(au.checkForUpdates).toHaveBeenCalledTimes(1);
+  });
+
+  it("이미 받아 둔 업데이트가 있으면 ready (다시 확인하지 않음)", async () => {
+    const au = fakeAutoUpdater();
+    const { up } = make(au);
+    au.emit("update-downloaded", { version: "0.2.0" });
+    expect(await up.checkNow()).toEqual({ outcome: "ready", version: "0.2.0", currentVersion: "0.1.0" });
+    expect(au.checkForUpdates).not.toHaveBeenCalled();
+  });
+
+  it("확인 중이면 busy", async () => {
+    const au = fakeAutoUpdater();
+    const { up } = make(au);
+    au.emit("checking-for-update");
+    expect((await up.checkNow()).outcome).toBe("busy");
+  });
+
+  it("오류가 나면 error 와 메시지 (던지지 않음)", async () => {
+    const au = fakeAutoUpdater({
+      checkForUpdates: vi.fn().mockRejectedValue(new Error("net::ERR_INTERNET_DISCONNECTED")),
+    });
+    const { up } = make(au);
+    expect(await up.checkNow()).toMatchObject({ outcome: "error", error: expect.stringContaining("INTERNET") });
+  });
+});
