@@ -373,6 +373,19 @@ export function SettingsDialog({
         </p>
 
         <label className="check">
+          <input
+            type="checkbox"
+            checked={draft.showPageMarker}
+            onChange={(e) => set({ showPageMarker: e.target.checked })}
+          />
+          문서 화면에 "지금 보는 쪽" 표시하기 (테두리와 이름표)
+        </label>
+        <p className="hint">
+          여러 쪽이 위아래로 이어져 보일 때, AI가 지금 어느 쪽을 기준으로 읽는지 한눈에 알 수 있어요. 진한 테두리가 지금
+          보는 쪽, 점선 테두리가 함께 읽는 앞뒤 쪽입니다.
+        </p>
+
+        <label className="check">
           <input type="checkbox" checked={draft.reopenLast} onChange={(e) => set({ reopenLast: e.target.checked })} />
           앱을 켜면 마지막으로 열었던 문서를 자동으로 열기
         </label>

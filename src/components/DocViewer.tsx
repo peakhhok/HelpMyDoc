@@ -39,6 +39,10 @@ interface Props {
   /** 처음 열 때 이동할 페이지 (저장된 마지막 페이지) */
   initialPage?: number;
   highlights: Highlight[];
+  /** 지금 보는 쪽 번호와, AI가 함께 읽는 앞뒤 쪽 수 (표식을 그린다) */
+  currentPage: number;
+  contextRadius: number;
+  showMarker: boolean;
   /** 형광펜 모드: 이 색이 정해져 있으면 글자를 선택하는 즉시 칠한다 */
   penColor: HlColor | null;
   onAddHighlight: (h: NewHighlight) => void;
@@ -78,8 +82,11 @@ const PageView = ({
   rootRef,
   register,
   highlights,
+  mark,
 }: {
   renderer: PageRenderer;
+  /** 지금 보는 쪽(current)과 AI가 함께 읽는 앞뒤 쪽(context) 표시 */
+  mark: "current" | "context" | null;
   pageNumber: number;
   scale: number;
   baseSize: Size;
@@ -129,7 +136,7 @@ const PageView = ({
   return (
     <div
       ref={wrapRef}
-      className="page"
+      className={`page${mark ? ` mark-${mark}` : ""}`}
       data-page={pageNumber}
       style={{ width: s.w * scale, height: s.h * scale, ["--total-scale-factor" as string]: scale }}
     >
@@ -155,6 +162,11 @@ const PageView = ({
         </div>
       )}
       <span className="page-label">{pageNumber}</span>
+      {mark && (
+        <span className={`page-tag ${mark}`} aria-hidden="true">
+          {mark === "current" ? `📍 지금 보는 쪽 p.${pageNumber}` : `p.${pageNumber} · 함께 읽음`}
+        </span>
+      )}
     </div>
   );
 };
@@ -167,6 +179,9 @@ export const DocViewer = forwardRef<DocViewerHandle, Props>(function DocViewer(
     onSelect,
     initialPage,
     highlights,
+    currentPage,
+    contextRadius,
+    showMarker,
     penColor,
     onAddHighlight,
     onChangeHighlight,
@@ -373,6 +388,15 @@ export const DocViewer = forwardRef<DocViewerHandle, Props>(function DocViewer(
             rootRef={rootRef}
             register={register}
             highlights={byPage.get(i + 1) ?? NO_HIGHLIGHTS}
+            mark={
+              !showMarker
+                ? null
+                : i + 1 === currentPage
+                  ? "current"
+                  : Math.abs(i + 1 - currentPage) <= contextRadius
+                    ? "context"
+                    : null
+            }
           />
         ))}
       {bar && !penColor && (

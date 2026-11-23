@@ -58,6 +58,8 @@ export interface Settings {
   projectBranch: string;
   /** 앱을 켜면 마지막으로 연 문서를 자동으로 연다 (데스크톱 앱에서만; 파일 경로만 기억한다) */
   reopenLast: boolean;
+  /** 문서 화면에서 지금 보는 쪽(과 AI가 함께 읽는 앞뒤 쪽)에 테두리와 이름표를 표시 */
+  showPageMarker: boolean;
 }
 
 const KEY = "helpmydoc.settings.v1";
@@ -83,6 +85,7 @@ export const DEFAULT_SETTINGS: Settings = {
   projectGit: false,
   projectBranch: "",
   reopenLast: true,
+  showPageMarker: true,
 };
 
 export function loadSettings(): Settings {

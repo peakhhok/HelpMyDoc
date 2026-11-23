@@ -654,6 +654,9 @@ export default function App() {
               ref={viewerRef}
               doc={doc}
               initialPage={restored.lastPage}
+              currentPage={page}
+              contextRadius={settings.radius}
+              showMarker={settings.showPageMarker}
               scale={scale}
               onPageChange={onPageChange}
               onSelect={setSelection}
