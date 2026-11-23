@@ -487,6 +487,22 @@ export default function App() {
         ? " ✓"
         : " (일부)";
 
+  // ← / → 키로 쪽 넘기기 (입력 중이거나 창이 떠 있을 때는 제외)
+  useEffect(() => {
+    if (!doc) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.key !== "ArrowLeft" && e.key !== "ArrowRight") || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.closest("input, textarea, select, [contenteditable='true']") || t.isContentEditable)) return;
+      if (document.querySelector(".modal-backdrop, .setup")) return;
+      if (window.getSelection()?.toString()) return; // 글자를 고른 채 화살표로 선택 범위를 바꾸는 중
+      e.preventDefault();
+      viewerRef.current?.goTo(page + (e.key === "ArrowRight" ? 1 : -1));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [doc, page]);
+
   const startResize = (e: React.PointerEvent) => {
     e.preventDefault();
     const move = (ev: PointerEvent) => setChatWidth(Math.min(800, Math.max(320, window.innerWidth - ev.clientX)));
@@ -536,38 +552,69 @@ export default function App() {
                 }}
               />
             ))}
-            <button className="ghost" onClick={() => setRightTab("notes")} title="이 문서의 메모와 형광펜 보기">
-              📝 메모{noteCount > 0 ? ` ${noteCount}` : ""}
+            <button
+              className="ghost"
+              onClick={() => setRightTab("notes")}
+              title="이 문서의 메모와 형광펜 보기"
+              aria-label={`메모${noteCount > 0 ? ` ${noteCount}` : ""}`}
+            >
+              📝<span className="lbl"> 메모</span>
+              {noteCount > 0 ? ` ${noteCount}` : ""}
             </button>
             <button
               className="ghost"
               onClick={() => setShowScan(true)}
               title="AI가 문서를 한 번 훑어 개요를 만들어 둬요"
+              aria-label={`문서 스캔${scanLabel}`}
             >
-              🔍 문서 스캔{scanLabel}
+              🔍<span className="lbl"> 문서 스캔</span>
+              {scanLabel}
             </button>
-          </div>
-        )}
-        <span className="spacer" />
-        {doc && (
-          <>
             <form
               className="pager"
               onSubmit={(e) => {
                 e.preventDefault();
                 const n = parseInt(pageInput, 10);
-                if (!Number.isNaN(n)) viewerRef.current?.goTo(n);
+                if (Number.isNaN(n)) setPageInput(String(page));
+                else viewerRef.current?.goTo(n);
               }}
             >
+              <button
+                type="button"
+                className="ghost nav"
+                aria-label="이전 쪽"
+                title="이전 쪽 (←)"
+                disabled={page <= 1}
+                onClick={() => viewerRef.current?.goTo(page - 1)}
+              >
+                ◀
+              </button>
               <input
                 value={pageInput}
                 inputMode="numeric"
                 aria-label="페이지 번호"
+                title="쪽 번호를 입력하고 Enter"
                 onChange={(e) => setPageInput(e.target.value)}
                 onFocus={(e) => e.target.select()}
+                onBlur={() => setPageInput(String(page))}
               />
               <span>/ {doc.numPages}</span>
+              <button
+                type="button"
+                className="ghost nav"
+                aria-label="다음 쪽"
+                title="다음 쪽 (→)"
+                disabled={page >= doc.numPages}
+                onClick={() => viewerRef.current?.goTo(page + 1)}
+              >
+                ▶
+              </button>
             </form>
+          </div>
+        )}
+        <span className="spacer" />
+        {doc && (
+          <>
             <div className="zoom">
               <button className="ghost" onClick={() => zoom(-0.25)} aria-label="축소">
                 −

@@ -113,7 +113,7 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 40vw;
+  max-width: min(22vw, 260px);
 }
 .pager {
   display: flex;
@@ -121,9 +121,19 @@ a {
   gap: 6px;
 }
 .pager input {
-  width: 64px;
+  width: 52px;
   text-align: center;
   padding: 4px 6px;
+}
+.pager .nav {
+  padding: 4px 8px;
+  font-size: 11px;
+  min-width: 30px;
+}
+.tools .pager {
+  margin-left: 4px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
 }
 .zoom {
   display: flex;
@@ -1122,4 +1132,35 @@ a {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+/* 좁은 창에서도 상단 버튼 글자가 두 줄로 꺾이지 않게: 줄바꿈을 막고, 좁으면 글자 라벨을 숨기고 아이콘만 보인다 */
+.toolbar button,
+.toolbar .pager span,
+.toolbar .zoom span,
+.tool-label {
+  white-space: nowrap;
+}
+.toolbar > *,
+.tools {
+  flex-shrink: 0;
+}
+.toolbar .filename {
+  flex-shrink: 1;
+  min-width: 40px;
+}
+@media (max-width: 1180px) {
+  .tool-label,
+  .tools .lbl {
+    display: none;
+  }
+  .toolbar {
+    gap: 6px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .tools {
+    margin-left: 2px;
+    padding-left: 8px;
+  }
 }
