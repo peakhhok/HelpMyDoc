@@ -610,6 +610,22 @@ export default function App() {
                 ▶
               </button>
             </form>
+            <label
+              className="snap-check"
+              title="쪽이 화면 가운데에 딱 맞게 멈춰요 (쪽이 화면보다 크면 적용되지 않아요)"
+            >
+              <input
+                type="checkbox"
+                checked={settings.snapPages}
+                onChange={(e) => {
+                  const next = { ...settings, snapPages: e.target.checked };
+                  setSettings(next);
+                  saveSettings(next);
+                }}
+              />
+              <span className="lbl">가운데 맞춤</span>
+              <span className="lbl-short">맞춤</span>
+            </label>
           </div>
         )}
         <span className="spacer" />
@@ -655,7 +671,7 @@ export default function App() {
               doc={doc}
               initialPage={restored.lastPage}
               currentPage={page}
-              contextRadius={settings.radius}
+              snapPages={settings.snapPages}
               showMarker={settings.showPageMarker}
               scale={scale}
               onPageChange={onPageChange}

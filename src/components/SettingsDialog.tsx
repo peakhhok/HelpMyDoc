@@ -378,11 +378,11 @@ export function SettingsDialog({
             checked={draft.showPageMarker}
             onChange={(e) => set({ showPageMarker: e.target.checked })}
           />
-          문서 화면에 "지금 보는 쪽" 표시하기 (테두리와 이름표)
+          문서 화면에서 지금 보는 쪽에 주황 테두리 표시하기
         </label>
         <p className="hint">
-          여러 쪽이 위아래로 이어져 보일 때, AI가 지금 어느 쪽을 기준으로 읽는지 한눈에 알 수 있어요. 진한 테두리가 지금
-          보는 쪽, 점선 테두리가 함께 읽는 앞뒤 쪽입니다.
+          여러 쪽이 위아래로 이어져 보일 때, 화면 가운데에 걸린 쪽 — AI가 기준으로 읽는 쪽 — 을 주황 테두리로 한눈에 알
+          수 있어요.
         </p>
 
         <label className="check">

@@ -29,6 +29,14 @@ export interface DocViewerHandle {
   highlightSelection: (color: HlColor) => boolean;
 }
 
+/** 쪽으로 이동할 때의 스크롤 위치: 가운데 맞춤이 켜져 있고 쪽이 화면에 들어가면 가운데, 아니면 쪽 맨 위 */
+function pageTop(root: HTMLElement, el: HTMLElement, center: boolean): number {
+  if (center && el.offsetHeight + 24 <= root.clientHeight) {
+    return Math.max(0, el.offsetTop + el.offsetHeight / 2 - root.clientHeight / 2);
+  }
+  return el.offsetTop - 12;
+}
+
 export type NewHighlight = Pick<Highlight, "page" | "color" | "rects" | "text">;
 
 interface Props {
@@ -39,10 +47,11 @@ interface Props {
   /** 처음 열 때 이동할 페이지 (저장된 마지막 페이지) */
   initialPage?: number;
   highlights: Highlight[];
-  /** 지금 보는 쪽 번호와, AI가 함께 읽는 앞뒤 쪽 수 (표식을 그린다) */
+  /** 지금 보는 쪽 번호 (주황 테두리로 표시) */
   currentPage: number;
-  contextRadius: number;
   showMarker: boolean;
+  /** 쪽을 화면 세로 가운데에 맞춰 멈추게 한다 */
+  snapPages: boolean;
   /** 형광펜 모드: 이 색이 정해져 있으면 글자를 선택하는 즉시 칠한다 */
   penColor: HlColor | null;
   onAddHighlight: (h: NewHighlight) => void;
@@ -82,11 +91,11 @@ const PageView = ({
   rootRef,
   register,
   highlights,
-  mark,
+  current,
 }: {
   renderer: PageRenderer;
-  /** 지금 보는 쪽(current)과 AI가 함께 읽는 앞뒤 쪽(context) 표시 */
-  mark: "current" | "context" | null;
+  /** 지금 보는 쪽이면 주황 테두리 */
+  current: boolean;
   pageNumber: number;
   scale: number;
   baseSize: Size;
@@ -136,7 +145,7 @@ const PageView = ({
   return (
     <div
       ref={wrapRef}
-      className={`page${mark ? ` mark-${mark}` : ""}`}
+      className={`page${current ? " mark-current" : ""}`}
       data-page={pageNumber}
       style={{ width: s.w * scale, height: s.h * scale, ["--total-scale-factor" as string]: scale }}
     >
@@ -162,11 +171,6 @@ const PageView = ({
         </div>
       )}
       <span className="page-label">{pageNumber}</span>
-      {mark && (
-        <span className={`page-tag ${mark}`} aria-hidden="true">
-          {mark === "current" ? `📍 지금 보는 쪽 p.${pageNumber}` : `p.${pageNumber} · 함께 읽음`}
-        </span>
-      )}
     </div>
   );
 };
@@ -180,8 +184,8 @@ export const DocViewer = forwardRef<DocViewerHandle, Props>(function DocViewer(
     initialPage,
     highlights,
     currentPage,
-    contextRadius,
     showMarker,
+    snapPages,
     penColor,
     onAddHighlight,
     onChangeHighlight,
@@ -237,7 +241,45 @@ export const DocViewer = forwardRef<DocViewerHandle, Props>(function DocViewer(
     if (root) ratio.current = root.scrollTop / Math.max(1, root.scrollHeight);
     cancelAnimationFrame(raf.current);
     raf.current = requestAnimationFrame(detectPage);
+    // 가운데 맞춤: 스크롤바를 끌거나 멈춘 뒤에도 쪽이 가운데에 오도록 잠시 후 맞춘다.
+    clearTimeout(settle.current);
+    if (snapPages) settle.current = window.setTimeout(settleToCenter, 220);
   };
+
+  const settle = useRef(0);
+  const settleToCenter = () => {
+    const root = rootRef.current;
+    const el = pageEls.current[lastPage.current];
+    if (!root || !el || el.offsetHeight + 24 > root.clientHeight) return;
+    const top = pageTop(root, el, true);
+    if (Math.abs(top - root.scrollTop) > 2) root.scrollTo({ top, behavior: "smooth" });
+  };
+
+  // 가운데 맞춤: 휠을 한 번 굴리면 앞뒤 한 쪽씩 넘긴다. (쪽이 화면보다 크면 그 안에서는 평소처럼 스크롤)
+  const wheelState = useRef({ at: 0, flipped: 0 });
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || !snapPages) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.deltaY === 0 || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      const cur = pageEls.current[lastPage.current];
+      if (!cur || cur.offsetHeight + 24 > root.clientHeight) return;
+      e.preventDefault();
+      const st = wheelState.current;
+      const now = performance.now();
+      const gap = now - st.at;
+      st.at = now;
+      // 트랙패드의 연속된 작은 움직임(관성 포함)은 한 번으로 본다. 마우스 휠은 칸마다 넘긴다.
+      const small = Math.abs(e.deltaY) < 50;
+      if (now - st.flipped < 300 || (small && gap < 200)) return;
+      st.flipped = now;
+      const target = Math.min(Math.max(1, lastPage.current + (e.deltaY > 0 ? 1 : -1)), doc.numPages);
+      const el = pageEls.current[target];
+      if (el) root.scrollTo({ top: pageTop(root, el, true), behavior: "smooth" });
+    };
+    root.addEventListener("wheel", onWheel, { passive: false });
+    return () => root.removeEventListener("wheel", onWheel);
+  }, [snapPages, doc]);
 
   // 확대/축소해도 보던 위치가 유지되도록 스크롤 비율을 복원한다.
   useLayoutEffect(() => {
@@ -253,7 +295,7 @@ export const DocViewer = forwardRef<DocViewerHandle, Props>(function DocViewer(
     pendingInitial.current = false;
     const root = rootRef.current;
     const el = pageEls.current[Math.min(Math.max(1, initialPage ?? 1), doc.numPages)];
-    if (root && el) root.scrollTo({ top: el.offsetTop - 12 });
+    if (root && el) root.scrollTo({ top: pageTop(root, el, snapPages) });
     requestAnimationFrame(detectPage);
   }, [baseSize, initialPage, doc, detectPage]);
 
@@ -301,7 +343,7 @@ export const DocViewer = forwardRef<DocViewerHandle, Props>(function DocViewer(
     goTo(page: number) {
       const root = rootRef.current;
       const el = pageEls.current[Math.min(Math.max(1, page), doc.numPages)];
-      if (root && el) root.scrollTo({ top: el.offsetTop - 12 });
+      if (root && el) root.scrollTo({ top: pageTop(root, el, snapPages) });
     },
     highlightSelection: applyHighlight,
   }));
@@ -367,7 +409,7 @@ export const DocViewer = forwardRef<DocViewerHandle, Props>(function DocViewer(
 
   return (
     <div
-      className={`viewer${penColor ? " pen" : ""}`}
+      className={`viewer${penColor ? " pen" : ""}${snapPages ? " snap" : ""}`}
       ref={rootRef}
       onScroll={() => {
         onScroll();
@@ -388,15 +430,7 @@ export const DocViewer = forwardRef<DocViewerHandle, Props>(function DocViewer(
             rootRef={rootRef}
             register={register}
             highlights={byPage.get(i + 1) ?? NO_HIGHLIGHTS}
-            mark={
-              !showMarker
-                ? null
-                : i + 1 === currentPage
-                  ? "current"
-                  : Math.abs(i + 1 - currentPage) <= contextRadius
-                    ? "context"
-                    : null
-            }
+            current={showMarker && i + 1 === currentPage}
           />
         ))}
       {bar && !penColor && (
