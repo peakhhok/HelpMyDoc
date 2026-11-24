@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { DocSource } from "../lib/docSource";
@@ -85,6 +85,89 @@ const toolIcon = (name?: string) =>
 
 const QUICK_PROMPTS = ["여기서 중요한 부분을 요약해줘", "이 페이지를 쉽게 설명해줘", "핵심 개념을 정리해줘"];
 
+/** 대화 한 칸. 입력할 때마다 지난 답변(마크다운 표 등)을 다시 그리지 않도록 memo 로 감싼다. */
+const MessageView = memo(function MessageView({
+  m,
+  numPages,
+  onGo,
+}: {
+  m: UiMessage;
+  numPages: number;
+  onGo: (page: number) => void;
+}) {
+  return (
+    <div className={`msg ${m.role}`}>
+      {m.role === "user" && m.ref && (
+        <div className="ref">
+          📄 {m.ref.from === m.ref.to ? `p.${m.ref.from}` : `p.${m.ref.from}–${m.ref.to}`} 참조
+          {m.ref.selection && " · 선택 텍스트 포함"}
+          {m.ref.overview && " · 📚 문서 개요 포함"}
+          {m.ref.notes && " · 📝 내 메모 포함"}
+          {m.ref.attached && m.ref.attached.length > 0 && ` · 📎 ${m.ref.attached.join(", ")}`}
+          {m.ref.related && m.ref.related.length > 0 && (
+            <>
+              {" · 🔗 비슷한 내용: "}
+              {m.ref.related.map((p) => (
+                <button key={p} type="button" className="pagelink" onClick={() => onGo(p)}>
+                  p.{p}
+                </button>
+              ))}
+            </>
+          )}
+          {m.ref.emptyPages.length > 0 && ` · 텍스트 없는 쪽: ${m.ref.emptyPages.join(", ")}`}
+        </div>
+      )}
+      {m.role === "assistant" ? (
+        m.content ? (
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              // 답변 속 (p.120) 은 눌러서 그 쪽으로 이동, 그 밖의 링크는 새 창(기본 브라우저)으로
+              a: ({ href, children }) =>
+                href?.startsWith("#page-") ? (
+                  <button type="button" className="pagelink" onClick={() => onGo(Number(href.slice(6)))}>
+                    {children}
+                  </button>
+                ) : (
+                  <a href={href} target="_blank" rel="noreferrer">
+                    {children}
+                  </a>
+                ),
+            }}
+          >
+            {linkifyPages(m.content, numPages)}
+          </ReactMarkdown>
+        ) : (
+          <span className="muted">생각 중…</span>
+        )
+      ) : (
+        <div className="plain">{m.content}</div>
+      )}
+      {m.role === "assistant" && m.tools && m.tools.length > 0 && (
+        <ul className="tool-log" aria-label="AI가 한 일">
+          {m.tools.map((t) => (
+            <li key={t.id} className={t.error ? "bad" : ""} title={t.error}>
+              {toolIcon(t.name)} {t.name === "WebSearch" ? "웹 검색" : t.name} <code>{t.target}</code>
+              {t.error && (
+                <span> · {t.name === "WebSearch" ? "검색하지 못했어요" : "거부됨(허용된 경로가 아니에요)"}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {m.role === "assistant" && m.usage && (
+        <div
+          className="usage-note"
+          title="이번 답변에 쓰인 토큰입니다. 입력에는 현재 페이지 문서, 이전 대화, 캐시된 분량이 포함됩니다."
+        >
+          입력 {formatTokens(m.usage.inputTokens)} · 출력 {formatTokens(m.usage.outputTokens)} 토큰
+        </div>
+      )}
+      {m.role === "assistant" && m.notice && <div className="usage-note notice">⚠ {m.notice}</div>}
+    </div>
+  );
+});
+
 export function ChatPanel({
   doc,
   fileName,
@@ -117,6 +200,10 @@ export function ChatPanel({
   getIndex,
 }: Props) {
   const [messages, setMessages] = useState<UiMessage[]>(initialMessages);
+  // 부모가 매번 새 함수를 넘겨도 지난 답변이 다시 그려지지 않도록 안정된 콜백으로 감싼다.
+  const goRef = useRef(onGoToPage);
+  goRef.current = onGoToPage;
+  const goToPage = useCallback((n: number) => goRef.current(n), []);
   /** 채팅창에 올린 파일 (글로 바꾼 것). 다음에 보내는 질문 한 번에 함께 전송되고, 보내면 비워진다 */
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachNote, setAttachNote] = useState<string | null>(null);
@@ -439,75 +526,7 @@ export function ChatPanel({
         )}
 
         {messages.map((m, i) => (
-          <div key={i} className={`msg ${m.role}`}>
-            {m.role === "user" && m.ref && (
-              <div className="ref">
-                📄 {m.ref.from === m.ref.to ? `p.${m.ref.from}` : `p.${m.ref.from}–${m.ref.to}`} 참조
-                {m.ref.selection && " · 선택 텍스트 포함"}
-                {m.ref.overview && " · 📚 문서 개요 포함"}
-                {m.ref.notes && " · 📝 내 메모 포함"}
-                {m.ref.attached && m.ref.attached.length > 0 && ` · 📎 ${m.ref.attached.join(", ")}`}
-                {m.ref.related && m.ref.related.length > 0 && (
-                  <>
-                    {" · 🔗 비슷한 내용: "}
-                    {m.ref.related.map((p) => (
-                      <button key={p} type="button" className="pagelink" onClick={() => onGoToPage(p)}>
-                        p.{p}
-                      </button>
-                    ))}
-                  </>
-                )}
-                {m.ref.emptyPages.length > 0 && ` · 텍스트 없는 쪽: ${m.ref.emptyPages.join(", ")}`}
-              </div>
-            )}
-            {m.role === "assistant" ? (
-              m.content ? (
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    // 답변 속 (p.120) 은 눌러서 그 쪽으로 이동, 그 밖의 링크는 새 창(기본 브라우저)으로
-                    a: ({ href, children }) =>
-                      href?.startsWith("#page-") ? (
-                        <button type="button" className="pagelink" onClick={() => onGoToPage(Number(href.slice(6)))}>
-                          {children}
-                        </button>
-                      ) : (
-                        <a href={href} target="_blank" rel="noreferrer">
-                          {children}
-                        </a>
-                      ),
-                  }}
-                >
-                  {linkifyPages(m.content, doc?.numPages ?? 0)}
-                </ReactMarkdown>
-              ) : (
-                <span className="muted">생각 중…</span>
-              )
-            ) : (
-              <div className="plain">{m.content}</div>
-            )}
-            {m.role === "assistant" && m.tools && m.tools.length > 0 && (
-              <ul className="tool-log" aria-label="AI가 한 일">
-                {m.tools.map((t) => (
-                  <li key={t.id} className={t.error ? "bad" : ""} title={t.error}>
-                    {toolIcon(t.name)} {t.name === "WebSearch" ? "웹 검색" : t.name} <code>{t.target}</code>
-                    {t.error && (
-                      <span> · {t.name === "WebSearch" ? "검색하지 못했어요" : "거부됨(허용된 경로가 아니에요)"}</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {m.role === "assistant" && m.usage && (
-              <div
-                className="usage-note"
-                title="이번 답변에 쓰인 토큰입니다. 입력에는 현재 페이지 문서, 이전 대화, 캐시된 분량이 포함됩니다."
-              >
-                입력 {formatTokens(m.usage.inputTokens)} · 출력 {formatTokens(m.usage.outputTokens)} 토큰
-              </div>
-            )}
-            {m.role === "assistant" && m.notice && <div className="usage-note notice">⚠ {m.notice}</div>}
-          </div>
+          <MessageView key={i} m={m} numPages={doc?.numPages ?? 0} onGo={goToPage} />
         ))}
         {error && <div className="error">{error}</div>}
         <div ref={bottomRef} />
