@@ -38,6 +38,11 @@ const MIN_SCALE = 0.5;
 const MAX_SCALE = 3;
 const DEFAULT_SCALE = 1.25;
 
+/** 채팅 영역 너비(px): 기본, 최소, 그리고 문서 영역이 최소로 남겨야 하는 폭 */
+const CHAT_DEFAULT = 440;
+const CHAT_MIN = 320;
+const DOC_MIN = 360;
+
 export default function App() {
   const [doc, setDoc] = useState<DocSource | null>(null);
   const [fileName, setFileName] = useState("");
@@ -82,7 +87,14 @@ export default function App() {
   const [startupDone, setStartupDone] = useState(false);
   /** 이번 실행 동안만 연결 점검을 건너뜀 */
   const [skipGate, setSkipGate] = useState(false);
-  const [chatWidth, setChatWidth] = useState(440);
+  const [chatWidth, setChatWidth] = useState(() => {
+    try {
+      const n = Number(localStorage.getItem("helpmydoc.chatWidth"));
+      return Number.isFinite(n) && n >= CHAT_MIN ? n : CHAT_DEFAULT;
+    } catch {
+      return CHAT_DEFAULT;
+    }
+  });
   const [dragOver, setDragOver] = useState(false);
   const docRef = useRef<DocSource | null>(null);
   // 드래그&드롭 핸들러는 처음 렌더의 openFile 을 잡고 있으므로 최신 설정은 ref 로 읽는다.
@@ -503,12 +515,28 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [doc, page]);
 
+  const saveChatWidth = (w: number) => {
+    try {
+      localStorage.setItem("helpmydoc.chatWidth", String(Math.round(w)));
+    } catch {
+      /* 저장하지 못해도 이번 실행에는 적용된다 */
+    }
+  };
+  /** 채팅 영역 너비: 최소 320px, 최대는 창 너비에서 문서가 최소로 남아야 하는 폭을 뺀 만큼 */
+  const clampChat = (w: number) => Math.min(Math.max(CHAT_MIN, w), Math.max(CHAT_MIN, window.innerWidth - DOC_MIN));
   const startResize = (e: React.PointerEvent) => {
     e.preventDefault();
-    const move = (ev: PointerEvent) => setChatWidth(Math.min(800, Math.max(320, window.innerWidth - ev.clientX)));
+    let last = chatWidth;
+    document.body.classList.add("resizing");
+    const move = (ev: PointerEvent) => {
+      last = clampChat(window.innerWidth - ev.clientX);
+      setChatWidth(last);
+    };
     const up = () => {
+      document.body.classList.remove("resizing");
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      saveChatWidth(last);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -662,7 +690,10 @@ export default function App() {
         </div>
       )}
 
-      <main className="split" style={{ gridTemplateColumns: `1fr 6px ${chatWidth}px` }}>
+      <main
+        className="split"
+        style={{ gridTemplateColumns: `minmax(0, 1fr) 10px min(${chatWidth}px, calc(100vw - ${DOC_MIN + 10}px))` }}
+      >
         <section className="left" ref={leftRef}>
           {doc ? (
             <DocViewer
@@ -710,7 +741,17 @@ export default function App() {
             </div>
           )}
         </section>
-        <div className="resizer" onPointerDown={startResize} role="separator" aria-orientation="vertical" />
+        <div
+          className="resizer"
+          onPointerDown={startResize}
+          onDoubleClick={() => {
+            setChatWidth(CHAT_DEFAULT);
+            saveChatWidth(CHAT_DEFAULT);
+          }}
+          title="끌어서 채팅 너비 조절 (더블클릭하면 원래대로)"
+          role="separator"
+          aria-orientation="vertical"
+        />
         <div className="right">
           <div className="tabs" role="tablist">
             <button

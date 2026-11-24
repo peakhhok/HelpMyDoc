@@ -165,11 +165,41 @@ a {
   background: var(--viewer-bg);
 }
 .resizer {
+  position: relative;
   cursor: col-resize;
   background: var(--border);
+  touch-action: none;
 }
-.resizer:hover {
+/* 가운데 손잡이 표시: 끌 수 있다는 걸 알아보기 쉽게 */
+.resizer::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 36px;
+  transform: translate(-50%, -50%);
+  border-radius: 2px;
+  background: var(--muted, #8b8b8b);
+  opacity: 0.6;
+}
+.resizer:hover,
+body.resizing .resizer {
   background: var(--accent);
+}
+.resizer:hover::after,
+body.resizing .resizer::after {
+  background: #fff;
+  opacity: 0.9;
+}
+/* 끄는 동안 글자 선택이 되거나 문서가 마우스를 가로채지 않게 */
+body.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+body.resizing .viewer,
+body.resizing iframe {
+  pointer-events: none;
 }
 
 .viewer {
