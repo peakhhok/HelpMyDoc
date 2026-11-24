@@ -73,7 +73,15 @@ interface Props {
 }
 
 const toolIcon = (name?: string) =>
-  name === "Write" || name === "Edit" ? "✏️" : name === "Grep" ? "🔍" : name === "Glob" ? "🗂" : "📖";
+  name === "Write" || name === "Edit"
+    ? "✏️"
+    : name === "Grep"
+      ? "🔍"
+      : name === "Glob"
+        ? "🗂"
+        : name === "WebSearch"
+          ? "🌐"
+          : "📖";
 
 const QUICK_PROMPTS = ["여기서 중요한 부분을 요약해줘", "이 페이지를 쉽게 설명해줘", "핵심 개념을 정리해줘"];
 
@@ -257,6 +265,7 @@ export function ChatPanel({
       // 이전 턴은 질문 원문만, 이번 턴에만 현재 페이지 문맥을 붙인다.
       await provider.stream(settings, {
         project,
+        web: settings.webSearch,
         // 화면에는 전체 대화가 남지만, AI 에게는 최근 대화만 보내 비용이 계속 늘지 않게 한다.
         history: trimHistory(history.map(({ role, content }) => ({ role, content }))),
         prompt: ctx.prompt,
@@ -478,11 +487,13 @@ export function ChatPanel({
               <div className="plain">{m.content}</div>
             )}
             {m.role === "assistant" && m.tools && m.tools.length > 0 && (
-              <ul className="tool-log" aria-label="AI가 폴더에서 한 일">
+              <ul className="tool-log" aria-label="AI가 한 일">
                 {m.tools.map((t) => (
                   <li key={t.id} className={t.error ? "bad" : ""} title={t.error}>
-                    {toolIcon(t.name)} {t.name} <code>{t.target}</code>
-                    {t.error && <span> · 거부됨(허용된 경로가 아니에요)</span>}
+                    {toolIcon(t.name)} {t.name === "WebSearch" ? "웹 검색" : t.name} <code>{t.target}</code>
+                    {t.error && (
+                      <span> · {t.name === "WebSearch" ? "검색하지 못했어요" : "거부됨(허용된 경로가 아니에요)"}</span>
+                    )}
                   </li>
                 ))}
               </ul>

@@ -120,6 +120,8 @@ async function chat(adapter, req, res) {
     return json(res, 400, { error: e.message || "잘못된 요청입니다." });
   }
   const { prompt, system, model, project: projectInput } = body ?? {};
+  // 웹 검색(WebSearch)만 여는 옵션. 지원하는 연결 방식에서만 켜지고, 그 밖의 값은 꺼진 것으로 본다.
+  const web = body?.web === true && !!adapter.webSystem;
   if (typeof prompt !== "string" || !prompt.trim()) return json(res, 400, { error: "prompt 가 필요합니다." });
   if (model != null && model !== "" && (typeof model !== "string" || !MODEL_RE.test(model))) {
     return json(res, 400, { error: "model 값이 올바르지 않습니다." });
@@ -145,12 +147,13 @@ async function chat(adapter, req, res) {
       if (project.commitOk) project.addFiles = exactFiles(project.allowWrite);
       if (project.addFiles.length === 0) project.commitOk = false;
     }
-    systemText += adapter.projectSystem({ ...project, claudeMd: readClaudeMd(project.dir) });
+    systemText += adapter.projectSystem({ ...project, web, claudeMd: readClaudeMd(project.dir) });
   }
+  if (web) systemText += adapter.webSystem();
 
   const cwd = project ? project.dir : workdirFor(adapter);
   const cli = resolveAdapterCommand(adapter);
-  const args = adapter.buildArgs({ system: systemText, model, project });
+  const args = adapter.buildArgs({ system: systemText, model, project, web });
 
   running++;
   res.writeHead(200, {

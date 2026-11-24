@@ -168,6 +168,15 @@ export function SettingsDialog({
               Sonnet을 권장합니다. 문서 질문에는 충분하고, 일반적으로 구독 한도를 덜 씁니다. 'Claude Code 기본값'은
               모델을 앱이 정하지 않고 Claude Code 자체 설정(계정·플랜에 따라 다름)을 따릅니다.
             </p>
+            <label className="check">
+              <input type="checkbox" checked={draft.webSearch} onChange={(e) => set({ webSearch: e.target.checked })} />
+              AI가 웹 검색 사용하기
+            </label>
+            <p className="hint">
+              슬라이드가 오래됐거나 설명이 애매할 때 AI가 인터넷에서 찾아보고 출처 주소와 함께 답해요. 켜면 검색어가
+              인터넷으로 나가고(문서 내용을 검색어에 넣지 않도록 지시해 두었어요) 구독 사용량이 조금 더 들어요. 웹
+              페이지를 직접 열거나 내려받는 기능은 열지 않습니다. 기본은 꺼짐입니다.
+            </p>
             <p className="hint">
               프로젝트 폴더(내 PC의 폴더를 AI가 읽게 하기)는 문서마다 따로 정해요. 문서를 연 뒤 채팅 창 위의{" "}
               <b>📁 폴더 연결</b> 버튼에서 설정하세요.

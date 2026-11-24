@@ -36,5 +36,6 @@ export const claudeCodeProvider: Provider = {
       onLimits: req.onLimits,
       onTool: req.onTool,
       project: req.project ?? undefined,
+      web: req.web,
     }),
 };

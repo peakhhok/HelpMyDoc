@@ -925,6 +925,46 @@ describe.skipIf(process.platform === "win32")("claude code bridge", () => {
       expect(ev.at(-1)).toEqual({ t: "done" });
     });
 
+    it("웹 검색을 켜면 WebSearch 만 열고(WebFetch·셸 없음) 묻지 않고 나머지는 거부한다", async () => {
+      const argsFile = join(dir, "args-web.json");
+      process.env.FAKE_ARGS_FILE = argsFile;
+      await chat({ prompt: "hi", system: "SYS", web: true });
+      const a: string[] = JSON.parse(readFileSync(argsFile, "utf8"));
+      const pair = (flag: string) => a[a.indexOf(flag) + 1];
+      expect(pair("--tools")).toBe("WebSearch");
+      expect(pair("--permission-mode")).toBe("dontAsk");
+      expect(pair("--allowedTools")).toBe("WebSearch");
+      expect(a.join(" ")).not.toMatch(/WebFetch|Bash|Write|Edit|Read/);
+      expect(a).toContain("--strict-mcp-config");
+      const sys = pair("--append-system-prompt");
+      expect(sys.startsWith("SYS")).toBe(true);
+      expect(sys).toContain("# Web search");
+      expect(sys).toContain("untrusted");
+    });
+
+    it("웹 검색은 true 일 때만 켜진다 (문자열·숫자 같은 값은 꺼짐)", async () => {
+      const argsFile = join(dir, "args-web2.json");
+      process.env.FAKE_ARGS_FILE = argsFile;
+      for (const web of ["true", 1, "yes", null]) {
+        await chat({ prompt: "hi", system: "SYS", web });
+        const a: string[] = JSON.parse(readFileSync(argsFile, "utf8"));
+        expect(a[a.indexOf("--tools") + 1]).toBe("");
+        expect(a.join(" ")).not.toContain("WebSearch");
+      }
+    });
+
+    it("폴더 연결 모드에서도 웹 검색은 WebSearch 한 가지만 더 연다", async () => {
+      const argsFile = join(dir, "args-web3.json");
+      process.env.FAKE_ARGS_FILE = argsFile;
+      const proj = mkdtempSync(join(tmpdir(), "hmd-web-"));
+      await chat({ prompt: "hi", system: "SYS", web: true, project: { dir: proj } });
+      const a: string[] = JSON.parse(readFileSync(argsFile, "utf8"));
+      expect(a[a.indexOf("--tools") + 1]).toBe("Read,Glob,Grep,WebSearch");
+      expect(a[a.indexOf("--allowedTools") + 1]).toBe("WebSearch");
+      expect(a.join(" ")).not.toMatch(/WebFetch|Bash|Write|Edit\b/);
+      expect(a[a.indexOf("--append-system-prompt") + 1]).toContain("besides WebSearch");
+    });
+
     it("순수 채팅 옵션으로 실행한다 (도구/MCP/슬래시명령/프로젝트 설정 끔, 세션 저장 안 함)", async () => {
       const argsFile = join(dir, "args.json");
       process.env.FAKE_ARGS_FILE = argsFile;

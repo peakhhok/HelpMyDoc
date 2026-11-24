@@ -49,6 +49,8 @@ export interface StreamCliOptions {
   onNotice?: (text: string) => void;
   /** 프로젝트 폴더 연결: 이 폴더에서 읽기 도구(와 허용한 경로의 쓰기)를 열어 실행한다 (Claude Code 만) */
   project?: { dir: string; allowWrite: string[]; git?: boolean; branch?: string };
+  /** 웹 검색(WebSearch) 허용 (Claude Code 만) */
+  web?: boolean;
   /** AI 가 도구로 파일을 읽거나 쓸 때(와 거부됐을 때) */
   onTool?: (tool: ToolEvent) => void;
 }
@@ -86,6 +88,7 @@ export async function streamCli(id: CliId, opts: StreamCliOptions): Promise<void
       system: opts.system,
       model: opts.model || undefined,
       project: opts.project || undefined,
+      web: opts.web || undefined,
     }),
   });
   if (!res.ok || !res.body) {
