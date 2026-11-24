@@ -704,6 +704,7 @@ export default function App() {
               currentPage={page}
               snapPages={settings.snapPages}
               showMarker={settings.showPageMarker}
+              showPageNumbers={settings.showPageNumbers}
               scale={scale}
               onPageChange={onPageChange}
               onSelect={setSelection}

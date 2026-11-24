@@ -60,6 +60,8 @@ export interface Settings {
   reopenLast: boolean;
   /** 문서 화면에서 지금 보는 쪽(과 AI가 함께 읽는 앞뒤 쪽)에 테두리와 이름표를 표시 */
   showPageMarker: boolean;
+  /** 쪽 오른쪽 아래의 작은 쪽 번호 */
+  showPageNumbers: boolean;
   /** 쪽을 화면 세로 가운데에 맞춰 멈추기 */
   snapPages: boolean;
 }
@@ -88,6 +90,7 @@ export const DEFAULT_SETTINGS: Settings = {
   projectBranch: "",
   reopenLast: true,
   showPageMarker: true,
+  showPageNumbers: false,
   snapPages: false,
 };
 

@@ -50,6 +50,8 @@ interface Props {
   /** 지금 보는 쪽 번호 (주황 테두리로 표시) */
   currentPage: number;
   showMarker: boolean;
+  /** 각 쪽 오른쪽 아래에 쪽 번호를 작게 표시 */
+  showPageNumbers: boolean;
   /** 쪽을 화면 세로 가운데에 맞춰 멈추게 한다 */
   snapPages: boolean;
   /** 형광펜 모드: 이 색이 정해져 있으면 글자를 선택하는 즉시 칠한다 */
@@ -185,6 +187,7 @@ export const DocViewer = forwardRef<DocViewerHandle, Props>(function DocViewer(
     highlights,
     currentPage,
     showMarker,
+    showPageNumbers,
     snapPages,
     penColor,
     onAddHighlight,
@@ -409,7 +412,7 @@ export const DocViewer = forwardRef<DocViewerHandle, Props>(function DocViewer(
 
   return (
     <div
-      className={`viewer${penColor ? " pen" : ""}${snapPages ? " snap" : ""}`}
+      className={`viewer${penColor ? " pen" : ""}${snapPages ? " snap" : ""}${showPageNumbers ? "" : " no-labels"}`}
       ref={rootRef}
       onScroll={() => {
         onScroll();

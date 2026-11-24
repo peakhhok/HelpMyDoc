@@ -386,6 +386,16 @@ export function SettingsDialog({
         </p>
 
         <label className="check">
+          <input
+            type="checkbox"
+            checked={draft.showPageNumbers}
+            onChange={(e) => set({ showPageNumbers: e.target.checked })}
+          />
+          각 쪽 오른쪽 아래에 쪽 번호 표시하기
+        </label>
+        <p className="hint">상단의 쪽 이동 막대에도 현재 쪽이 나오므로 기본은 꺼져 있어요.</p>
+
+        <label className="check">
           <input type="checkbox" checked={draft.reopenLast} onChange={(e) => set({ reopenLast: e.target.checked })} />
           앱을 켜면 마지막으로 열었던 문서를 자동으로 열기
         </label>

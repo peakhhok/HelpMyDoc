@@ -1225,3 +1225,7 @@ body.resizing iframe {
     display: inline;
   }
 }
+
+.viewer.no-labels .page-label {
+  display: none;
+}
