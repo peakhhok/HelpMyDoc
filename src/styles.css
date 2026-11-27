@@ -1229,3 +1229,13 @@ body.resizing iframe {
 .viewer.no-labels .page-label {
   display: none;
 }
+
+/* 채팅 입력창 옆 '쪽 그림 보내기' 토글 */
+.img-btn.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.img-btn:disabled {
+  opacity: 0.4;
+}

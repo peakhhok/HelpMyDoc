@@ -18,6 +18,7 @@ import type { VerifyPhase } from "../lib/useVerify";
 import { bestExcerpt, findRelated, type PageIndex } from "../lib/related";
 import { updateDoc } from "../lib/docStore";
 import { linkifyPages, trimHistory, type UiMessage } from "../lib/history";
+import { canSendPageImage, renderPageImage, type PageImage } from "../lib/pageImage";
 import { getProvider } from "../lib/providers";
 import type { ProviderId } from "../lib/settings";
 import { evaluateSetup } from "../lib/setup";
@@ -43,6 +44,8 @@ interface Props {
   codex: BridgeStatus | null;
   /** 설정 열기 (id 를 주면 그 연결 방식의 탭으로) */
   onOpenSettings: (provider?: ProviderId) => void;
+  /** 쪽 그림 보내기 켜고 끄기 (설정에 저장) */
+  onTogglePageImage: (on: boolean) => void;
   /** 준비된 연결 방식으로 바꾼다 */
   onSwitchProvider: (id: ProviderId) => void;
   /** 연결 설정(시작 화면) 열기 */
@@ -103,6 +106,7 @@ const MessageView = memo(function MessageView({
           {m.ref.selection && " · 선택 텍스트 포함"}
           {m.ref.overview && " · 📚 문서 개요 포함"}
           {m.ref.notes && " · 📝 내 메모 포함"}
+          {m.ref.image && " · 🖼 쪽 그림 포함"}
           {m.ref.attached && m.ref.attached.length > 0 && ` · 📎 ${m.ref.attached.join(", ")}`}
           {m.ref.related && m.ref.related.length > 0 && (
             <>
@@ -181,6 +185,7 @@ export function ChatPanel({
   bridge,
   codex,
   onOpenSettings,
+  onTogglePageImage,
   onSwitchProvider,
   onOpenSetup,
   onRecheckBridge,
@@ -220,6 +225,9 @@ export function ChatPanel({
   }, [messages]);
 
   const provider = getProvider(settings.provider);
+  /** 이 질문에 쪽 그림을 함께 보내는가: Claude Code + PDF + 설정에서 켬 */
+  const imageCapable = provider.id === "claude-code" && canSendPageImage(doc);
+  const imageOn = imageCapable && settings.sendPageImage;
   const project = projectFromValues(projectValues);
   const [showGit, setShowGit] = useState(false);
   const [showProject, setShowProject] = useState(false);
@@ -320,6 +328,16 @@ export function ChatPanel({
           }));
         }
       }
+      // 지금 쪽의 그림도 함께 보낸다 (Claude Code + PDF, 설정에서 켠 경우). 만들지 못하면 글자만 보내고 알려 준다.
+      let images: PageImage[] = [];
+      let imageNote: string | undefined;
+      if (imageOn) {
+        try {
+          images = [await renderPageImage(doc, currentPage)];
+        } catch (e) {
+          imageNote = `쪽 그림은 보내지 못했어요 (${e instanceof Error ? e.message : "알 수 없는 오류"}). 글자만 보냈어요.`;
+        }
+      }
       const ctx = await buildPrompt({
         attachments: fitAttachments(sentAttachments),
         related,
@@ -345,14 +363,16 @@ export function ChatPanel({
           notes: ctx.notes,
           related: ctx.related,
           attached: ctx.attached,
+          image: images.length > 0,
         },
       };
-      setMessages([...history, userMsg, { role: "assistant", content: "" }]);
+      setMessages([...history, userMsg, { role: "assistant", content: "", notice: imageNote }]);
 
       // 이전 턴은 질문 원문만, 이번 턴에만 현재 페이지 문맥을 붙인다.
       await provider.stream(settings, {
         project,
         web: settings.webSearch,
+        images: images.map(({ mediaType, data }) => ({ mediaType, data })),
         // 화면에는 전체 대화가 남지만, AI 에게는 최근 대화만 보내 비용이 계속 늘지 않게 한다.
         history: trimHistory(history.map(({ role, content }) => ({ role, content }))),
         prompt: ctx.prompt,
@@ -621,6 +641,27 @@ export function ChatPanel({
           >
             {attachBusy ? "…" : "📎"}
           </button>
+          {provider.id === "claude-code" && (
+            <button
+              type="button"
+              className={`ghost attach-btn img-btn${imageOn ? " on" : ""}`}
+              aria-pressed={imageOn}
+              disabled={!doc || !imageCapable}
+              title={
+                !doc
+                  ? "먼저 문서를 열어 주세요"
+                  : !imageCapable
+                    ? "쪽 그림 보내기는 PDF에서만 쓸 수 있어요 (PowerPoint는 아직 지원하지 않아요)"
+                    : imageOn
+                      ? "켜짐: 질문할 때 지금 쪽의 그림도 AI에게 보내요 (그림·도표·화살표를 읽게 됨, 토큰을 더 써요). 눌러서 끄기"
+                      : "꺼짐: 눌러서 켜면 질문할 때 지금 쪽의 그림도 AI에게 보내요 (토큰을 더 써요)"
+              }
+              aria-label="쪽 그림 함께 보내기"
+              onClick={() => onTogglePageImage(!settings.sendPageImage)}
+            >
+              🖼
+            </button>
+          )}
           <textarea
             rows={2}
             value={input}

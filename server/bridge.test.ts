@@ -35,6 +35,7 @@ if (process.env.FAKE_PID_FILE) fs.writeFileSync(process.env.FAKE_PID_FILE, Strin
 let input = "";
 process.stdin.on("data", (d) => (input += d));
 process.stdin.on("end", () => {
+  if (process.env.FAKE_STDIN_FILE) fs.writeFileSync(process.env.FAKE_STDIN_FILE, input);
   const emit = (o) => console.log(JSON.stringify(o));
   const mode = process.env.FAKE_MODE;
   if (mode === "hang") { emit({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "start" } } }); setInterval(() => {}, 1000); return; }
@@ -923,6 +924,66 @@ describe.skipIf(process.platform === "win32")("claude code bridge", () => {
           .join(""),
       ).toBe("echo:안녕 질문");
       expect(ev.at(-1)).toEqual({ t: "done" });
+    });
+
+    const PNG1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const stdinOf = async (extra: object) => {
+      const argsFile = join(dir, "args-img.json");
+      const inFile = join(dir, "stdin-img.txt");
+      rmSync(argsFile, { force: true });
+      rmSync(inFile, { force: true });
+      process.env.FAKE_ARGS_FILE = argsFile;
+      process.env.FAKE_STDIN_FILE = inFile;
+      const r = await chat({ prompt: "이 쪽 그림 설명해줘", system: "SYS", ...extra });
+      delete process.env.FAKE_STDIN_FILE;
+      return {
+        r,
+        args: existsSync(argsFile) ? (JSON.parse(readFileSync(argsFile, "utf8")) as string[]) : [],
+        stdin: existsSync(inFile) ? readFileSync(inFile, "utf8") : "",
+      };
+    };
+
+    it("쪽 그림을 보내면 stream-json 입력으로 그림 블록과 질문을 함께 전달한다", async () => {
+      const { r, args, stdin } = await stdinOf({ images: [{ mediaType: "image/jpeg", data: PNG1 }] });
+      expect(r.status).toBe(200);
+      expect(args[args.indexOf("--input-format") + 1]).toBe("stream-json");
+      expect(args[args.indexOf("--tools") + 1]).toBe(""); // 그림을 보내도 도구는 열리지 않는다
+      expect(args[args.indexOf("--append-system-prompt") + 1]).toContain("# Page image");
+      const msg = JSON.parse(stdin.trim());
+      expect(msg.type).toBe("user");
+      expect(msg.message.content[0]).toEqual({
+        type: "image",
+        source: { type: "base64", media_type: "image/jpeg", data: PNG1 },
+      });
+      expect(msg.message.content[1]).toEqual({ type: "text", text: "이 쪽 그림 설명해줘" });
+    });
+
+    it("그림이 없으면 예전처럼 글자만 표준입력으로 보낸다", async () => {
+      const { args, stdin } = await stdinOf({});
+      expect(args).not.toContain("--input-format");
+      expect(stdin).toBe("이 쪽 그림 설명해줘");
+    });
+
+    it("잘못된 그림은 400 으로 거절하고 실행하지 않는다", async () => {
+      const bad = [
+        [{ mediaType: "image/svg+xml", data: PNG1 }],
+        [{ mediaType: "image/png", data: "not base64!!" }],
+        [{ mediaType: "image/png", data: "" }],
+        [{ mediaType: "image/png", data: "A".repeat(1_800_001) }],
+        [
+          { mediaType: "image/png", data: PNG1 },
+          { mediaType: "image/png", data: PNG1 },
+          { mediaType: "image/png", data: PNG1 },
+        ],
+        [],
+        "x",
+        [null],
+      ];
+      for (const images of bad) {
+        const { r, args } = await stdinOf({ images });
+        expect(r.status).toBe(400);
+        expect(args).toEqual([]);
+      }
     });
 
     it("웹 검색을 켜면 WebSearch 만 열고(WebFetch·셸 없음) 묻지 않고 나머지는 거부한다", async () => {

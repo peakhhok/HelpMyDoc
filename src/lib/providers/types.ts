@@ -19,6 +19,8 @@ export interface ProviderRequest {
   onNotice?: (text: string) => void;
   /** 프로젝트 폴더 모드에서 AI 가 파일을 읽거나 쓸 때 (Claude Code 만) */
   onTool?: (tool: ToolEvent) => void;
+  /** 이번 질문에 함께 보낼 쪽 그림 (Claude Code 만) */
+  images?: Array<{ mediaType: string; data: string }>;
   /** AI 가 웹 검색을 쓰게 허용 (Claude Code 만, 설정에서 켠 경우) */
   web?: boolean;
   /** 이 문서에 연결된 프로젝트 폴더 (없으면 null). 문서 스캔처럼 폴더가 필요 없는 요청은 넘기지 않는다 */

@@ -37,5 +37,6 @@ export const claudeCodeProvider: Provider = {
       onTool: req.onTool,
       project: req.project ?? undefined,
       web: req.web,
+      images: req.images,
     }),
 };

@@ -51,6 +51,8 @@ export interface StreamCliOptions {
   project?: { dir: string; allowWrite: string[]; git?: boolean; branch?: string };
   /** 웹 검색(WebSearch) 허용 (Claude Code 만) */
   web?: boolean;
+  /** 이번 질문에 함께 보낼 쪽 그림 (Claude Code 만) */
+  images?: Array<{ mediaType: string; data: string }>;
   /** AI 가 도구로 파일을 읽거나 쓸 때(와 거부됐을 때) */
   onTool?: (tool: ToolEvent) => void;
 }
@@ -89,6 +91,7 @@ export async function streamCli(id: CliId, opts: StreamCliOptions): Promise<void
       model: opts.model || undefined,
       project: opts.project || undefined,
       web: opts.web || undefined,
+      images: opts.images?.length ? opts.images : undefined,
     }),
   });
   if (!res.ok || !res.body) {

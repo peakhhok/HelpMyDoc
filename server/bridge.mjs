@@ -22,6 +22,9 @@ import {
 } from "./project.mjs";
 
 const MAX_BODY = 4 * 1024 * 1024;
+const MAX_IMAGES = 2;
+/** 그림 한 장(base64)의 최대 크기. 요청 본문 한도(4MB) 안에 두 장이 들어가는 크기 */
+const MAX_IMAGE_B64 = 1_800_000;
 const MAX_CONCURRENT = 2;
 const TIMEOUT_MS = 5 * 60 * 1000;
 /** 프로젝트 폴더 모드는 파일을 여러 번 읽을 수 있어 더 오래 걸릴 수 있다 */
@@ -122,6 +125,26 @@ async function chat(adapter, req, res) {
   const { prompt, system, model, project: projectInput } = body ?? {};
   // 웹 검색(WebSearch)만 여는 옵션. 지원하는 연결 방식에서만 켜지고, 그 밖의 값은 꺼진 것으로 본다.
   const web = body?.web === true && !!adapter.webSystem;
+  // 쪽 그림: JPEG/PNG base64 최대 2장. 지원하지 않는 연결 방식이나 모양이 틀린 값은 거절한다.
+  let images = [];
+  if (body?.images != null) {
+    const ok =
+      Array.isArray(body.images) &&
+      body.images.length > 0 &&
+      body.images.length <= MAX_IMAGES &&
+      body.images.every(
+        (im) =>
+          im &&
+          (im.mediaType === "image/jpeg" || im.mediaType === "image/png") &&
+          typeof im.data === "string" &&
+          im.data.length > 0 &&
+          im.data.length <= MAX_IMAGE_B64 &&
+          /^[A-Za-z0-9+/]+={0,2}$/.test(im.data),
+      );
+    if (!ok) return json(res, 400, { error: "images 값이 올바르지 않습니다. (JPEG/PNG base64, 최대 2장)" });
+    if (!adapter.supportsImages) return json(res, 400, { error: "이 연결 방식은 쪽 그림을 지원하지 않습니다." });
+    images = body.images.map(({ mediaType, data }) => ({ mediaType, data }));
+  }
   if (typeof prompt !== "string" || !prompt.trim()) return json(res, 400, { error: "prompt 가 필요합니다." });
   if (model != null && model !== "" && (typeof model !== "string" || !MODEL_RE.test(model))) {
     return json(res, 400, { error: "model 값이 올바르지 않습니다." });
@@ -150,10 +173,11 @@ async function chat(adapter, req, res) {
     systemText += adapter.projectSystem({ ...project, web, claudeMd: readClaudeMd(project.dir) });
   }
   if (web) systemText += adapter.webSystem();
+  if (images.length) systemText += adapter.imageSystem();
 
   const cwd = project ? project.dir : workdirFor(adapter);
   const cli = resolveAdapterCommand(adapter);
-  const args = adapter.buildArgs({ system: systemText, model, project, web });
+  const args = adapter.buildArgs({ system: systemText, model, project, web, images });
 
   running++;
   res.writeHead(200, {
@@ -221,7 +245,7 @@ async function chat(adapter, req, res) {
   });
 
   child.stdin.on("error", () => {});
-  child.stdin.end(adapter.buildStdin({ prompt, system: systemText }));
+  child.stdin.end(adapter.buildStdin({ prompt, system: systemText, images }));
 }
 
 /** 프로젝트 폴더에 CLAUDE.md 예시를 만든다: { dir, template }. 이미 있으면 거절(덮어쓰지 않음). */

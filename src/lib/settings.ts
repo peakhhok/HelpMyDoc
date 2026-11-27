@@ -62,6 +62,8 @@ export interface Settings {
   showPageMarker: boolean;
   /** AI 가 웹 검색을 쓰게 허용 (Claude Code 구독 연결에서만) */
   webSearch: boolean;
+  /** 질문할 때 지금 쪽의 그림도 함께 보내기 (Claude Code + PDF) */
+  sendPageImage: boolean;
   /** 쪽 오른쪽 아래의 작은 쪽 번호 */
   showPageNumbers: boolean;
   /** 쪽을 화면 세로 가운데에 맞춰 멈추기 */
@@ -93,6 +95,7 @@ export const DEFAULT_SETTINGS: Settings = {
   reopenLast: true,
   showPageMarker: true,
   webSearch: false,
+  sendPageImage: false,
   showPageNumbers: false,
   snapPages: false,
 };

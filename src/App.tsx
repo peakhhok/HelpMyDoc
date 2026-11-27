@@ -787,6 +787,11 @@ export default function App() {
               bridge={bridge}
               codex={codex}
               onOpenSettings={openSettings}
+              onTogglePageImage={(on) => {
+                const next = { ...settings, sendPageImage: on };
+                setSettings(next);
+                saveSettings(next);
+              }}
               onSwitchProvider={switchProvider}
               onOpenSetup={() => setForceSetup(true)}
               projectValues={docProject ?? valuesFromSettings(settings)}
